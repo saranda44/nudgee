@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
-const LAMBDAS = ["ingesta", "worker-ia"];
+const LAMBDAS = ["ingesta", "worker-ia", "post-auth", "dlq", "api"];
 
 for (const lambda of LAMBDAS) {
   const outdir = path.join(root, "dist", lambda);
