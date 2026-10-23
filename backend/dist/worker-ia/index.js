@@ -1,15 +1,1 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.handler = void 0;
-const handler = async (event) => {
-    console.log("Iniciando procesamiento de lote SQS...", event.Records.length);
-    for (const record of event.Records) {
-        const body = JSON.parse(record.body);
-        console.log("Procesando videoId:", body.videoId);
-        // TODO para Sara:
-        // 1. Consultar caché global en DynamoDB
-        // 2. Invocar a Gemini API si no hay caché
-        // 3. Escribir resultado en tabla base y caché
-    }
-};
-exports.handler = handler;
+"use strict";var r=Object.defineProperty;var s=Object.getOwnPropertyDescriptor;var S=Object.getOwnPropertyNames;var l=Object.prototype.hasOwnProperty;var t=(e,o)=>{for(var d in o)r(e,d,{get:o[d],enumerable:!0})},a=(e,o,d,c)=>{if(o&&typeof o=="object"||typeof o=="function")for(let n of S(o))!l.call(e,n)&&n!==d&&r(e,n,{get:()=>o[n],enumerable:!(c=s(o,n))||c.enumerable});return e};var i=e=>a(r({},"__esModule",{value:!0}),e);var p={};t(p,{handler:()=>Q});module.exports=i(p);var Q=async e=>{console.log("Iniciando procesamiento de lote SQS...",e.Records.length);for(let o of e.Records){let d=JSON.parse(o.body);console.log("Procesando videoId:",d.videoId)}};0&&(module.exports={handler});
