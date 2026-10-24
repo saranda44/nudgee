@@ -1,7 +1,6 @@
 import { Ajv } from "ajv";
 import type { ErrorObject } from "ajv";
 import { AnalysisSchema, BRANCH_ORDER, CATEGORIES, type Category } from "./categories.ts";
-import { AiEnvelopeSchema } from "./envelope.ts";
 import type { View } from "./common.ts";
 
 /** additionalProperties:false explícito en cada objeto; allErrors para juntar todos los problemas de una. */
@@ -10,20 +9,12 @@ const ajv = new Ajv({ allErrors: true, strict: true });
 const analysisValidators: Record<View, ReturnType<typeof ajv.compile>> = {
   stored: ajv.compile(AnalysisSchema("stored")),
   input: ajv.compile(AnalysisSchema("input")),
-  ai: ajv.compile(AnalysisSchema("ai")),
 };
-
-const envelopeValidator = ajv.compile(AiEnvelopeSchema);
 
 export function validateAnalysis(view: View, data: unknown) {
   const validate = analysisValidators[view];
   const valid = validate(data);
   return { valid, errors: valid ? null : formatValidationErrors(validate.errors, data) };
-}
-
-export function validateAiEnvelope(data: unknown) {
-  const valid = envelopeValidator(data);
-  return { valid, errors: valid ? null : formatValidationErrors(envelopeValidator.errors, data) };
 }
 
 export interface ValidationIssue {

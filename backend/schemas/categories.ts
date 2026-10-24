@@ -51,7 +51,7 @@ function withHeader(view: View, category: Category, details: Record<string, TSch
     {
       category: Type.Literal(category),
       title: TitleField(),
-      summary: SummaryField(view),
+      summary: SummaryField(),
       ...details,
     },
     { additionalProperties: false },
@@ -93,8 +93,7 @@ function routineBranch(view: View) {
 
 /**
  * TUTORIAL: materials y steps son opcionales, pero al menos uno debe
- * tener contenido. En stored/input esa regla sí va en el schema (allOf + anyOf);
- * en ai no.
+ * tener contenido; esa regla va en el schema (allOf + anyOf).
  */
 function tutorialBranch(view: View) {
   const base = withHeader(view, "TUTORIAL", {
@@ -110,8 +109,6 @@ function tutorialBranch(view: View) {
       { additionalProperties: false },
     ),
   });
-
-  if (view === "ai") return base;
 
   const atLeastOneWithContent = Type.Union([
     Type.Object({ details: Type.Object({ materials: Type.Array(Type.Unknown(), { minItems: 1 }) }, { required: ["materials"] }) }),
@@ -131,10 +128,6 @@ function eventBranch(view: View) {
         ),
         eventTime: Type.Optional(Type.String({ pattern: "^\\d{2}:\\d{2}$", description: "Local event time HH:mm, if stated." })),
         cityOrAddress: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "City or address, if stated." })),
-        // Solo vista ai: día y mes sin año; el worker la resuelve a eventDate y la descarta.
-        ...(view === "ai"
-          ? { eventMonthDay: Type.Optional(Type.String({ pattern: "^\\d{2}-\\d{2}$", description: "MM-DD when day and month are explicit but the year is unknown." })) }
-          : {}),
       },
       { additionalProperties: false },
     ),

@@ -2,15 +2,11 @@ import { Type } from "@sinclair/typebox";
 import type { TSchema } from "@sinclair/typebox";
 import { LIMITS } from "./limits.ts";
 
-/**
- * Las 3 vistas: stored (id obligatorio), input (id opcional),
- * ai (sin id, summary obligatorio).
- */
-export type View = "stored" | "input" | "ai";
+/** Las 2 vistas: stored (id obligatorio) e input (id opcional, API-15). */
+export type View = "stored" | "input";
 
-/** `id` de elementos marcables y entradas: obligatorio en stored, opcional en input, inexistente en ai. */
+/** `id` de elementos marcables y entradas: obligatorio en stored, opcional en input. */
 export function idProperty(view: View): Record<string, TSchema> {
-  if (view === "ai") return {};
   const id = Type.String({ description: "Stable id assigned by the server (e.g. i3 or e2); never invent one." });
   return { id: view === "stored" ? id : Type.Optional(id) };
 }
@@ -19,10 +15,9 @@ export function TitleField() {
   return Type.String({ ...LIMITS.title, description: "Short, descriptive title. Not clickbait." });
 }
 
-/** Obligatorio solo en la vista ai; opcional en stored e input. */
-export function SummaryField(view: View) {
-  const summary = Type.String({ maxLength: LIMITS.summary.maxLength, description: "One or two sentence summary." });
-  return view === "ai" ? summary : Type.Optional(summary);
+/** Siempre opcional en stored e input (E-09: el formulario puede omitirlo). */
+export function SummaryField() {
+  return Type.Optional(Type.String({ maxLength: LIMITS.summary.maxLength, description: "One or two sentence summary." }));
 }
 
 /** Un elemento marcable: `{ id, text }` (ingredients, exercises, materials). */
