@@ -21,6 +21,7 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1155.0",
     "@aws-sdk/client-sqs": "^3.1155.0",
+    "@aws-sdk/client-ssm": "^3.1156.0",
     "@aws-sdk/lib-dynamodb": "^3.1155.0",
     "@aws-sdk/util-dynamodb": "^3.996.0",
     "@sinclair/typebox": "^0.34.52",
