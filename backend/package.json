@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --test schemas",
+    "test": "node --test schemas worker-ia",
     "typecheck": "tsc --noEmit",
     "build": "node scripts/build.mjs"
   },
