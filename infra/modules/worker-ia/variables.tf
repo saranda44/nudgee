@@ -21,18 +21,13 @@ variable "sqs_queue_arn" {
 }
 
 variable "gemini_model" {
-  description = "Modelo de Gemini a usar. Se define al configurar AI Studio; sin default a propósito"
+  description = "Modelo de Gemini a usar (confirmado en vivo: Flash Lite, 500 solicitudes/día gratis vs. 20 de Flash completo)"
   type        = string
-}
-
-variable "enable_grounding" {
-  description = "Si la llamada a Gemini incluye la herramienta de búsqueda de Google"
-  type        = bool
-  default     = true
+  default     = "gemini-3.5-flash-lite"
 }
 
 variable "analysis_version" {
-  description = "Versión del prompt/schema; se incrementa a mano al cambiarlos o ENABLE_GROUNDING"
+  description = "Versión del prompt/schema; se incrementa a mano al cambiarlos"
   type        = number
   default     = 1
 }

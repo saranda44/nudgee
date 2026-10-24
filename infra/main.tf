@@ -71,6 +71,21 @@ module "ingesta" {
   sqs_queue_url       = module.sqs.queue_url
 }
 
+# 1.1 Lambda Worker IA, consume la cola de análisis (Fase 3)
+module "worker_ia" {
+  source = "./modules/worker-ia"
+
+  project_name        = var.project_name
+  environment         = var.environment
+  dynamodb_table_name = module.dynamodb.table_name
+  sqs_queue_url       = module.sqs.queue_url
+  sqs_queue_arn       = module.sqs.queue_arn
+}
+
+output "worker_ia_lambda_arn" {
+  value = module.worker_ia.lambda_arn
+}
+
 # 2. API Gateway HTTP API
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "${var.project_name}-api-${var.environment}"

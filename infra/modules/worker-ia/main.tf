@@ -23,7 +23,6 @@ resource "aws_lambda_function" "worker_ia" {
       TABLE_NAME                    = var.dynamodb_table_name
       QUEUE_URL                     = var.sqs_queue_url
       GEMINI_MODEL                  = var.gemini_model
-      ENABLE_GROUNDING              = tostring(var.enable_grounding)
       ANALYSIS_VERSION              = tostring(var.analysis_version)
       CACHE_CONFIDENCE_THRESHOLD    = tostring(var.cache_confidence_threshold)
       CACHE_TTL_OK_SECONDS          = tostring(var.cache_ttl_ok_seconds)
