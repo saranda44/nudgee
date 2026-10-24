@@ -1,10 +1,14 @@
-import { AnalysisSchema } from "../schemas/index.ts";
+import { buildGeminiFlatSchema } from "../schemas/gemini-flat-schema.ts";
 import { stripUnsupportedKeywords } from "../schemas/keywords-to-strip.ts";
 import type { WorkerConfig } from "./config.ts";
 import { type AnalysisForItem, markItemNeedsInput, markItemPending, readAnalysisCache, writeAnalysisCache } from "./dynamo.ts";
 import { analyzeWithGemini } from "./gemini.ts";
 import { createIdGenerator, normalizeAiOutput } from "./normalize.ts";
 import { buildPrompt } from "./prompt.ts";
+
+// No dependen del mensaje: se calculan una sola vez, no en cada invocación.
+const GEMINI_SCHEMA = stripUnsupportedKeywords(buildGeminiFlatSchema());
+const PROMPT = buildPrompt();
 
 export interface AnalysisMessage {
   userId: string;
@@ -57,14 +61,9 @@ export async function processAnalysis(input: ProcessAnalysisInput): Promise<Proc
   }
 
   const videoUrl = `https://www.youtube.com/watch?v=${message.videoId}`;
-  const prompt = buildPrompt({ groundingEnabled: config.enableGrounding });
-  const schema = stripUnsupportedKeywords(AnalysisSchema("ai"));
 
   // GeminiCallError (429/5xx/timeout) se propaga a propósito: el handler decide el backoff.
-  const rawText = await analyzeWithGemini(videoUrl, prompt, schema, {
-    groundingEnabled: config.enableGrounding,
-    timeoutMs: config.geminiTimeoutMs,
-  });
+  const rawText = await analyzeWithGemini(videoUrl, PROMPT, GEMINI_SCHEMA, {model: config.geminiModel, timeoutMs: config.geminiTimeoutMs,});
 
   const normalized = normalizeAiOutput(rawText, now, createIdGenerator());
 
