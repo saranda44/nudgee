@@ -1,0 +1,15 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "MUSIC",
+    "title": "Canciones para estudiar sin letra",
+    "summary": "Selección de lo-fi y ambient mencionada en el video.",
+    "details": {
+      "entries": [
+        { "name": "Bohemian Rhapsody", "musicType": "SONG", "artist": "Queen", "genre": "Rock" },
+        { "name": "Nujabes", "musicType": "ARTIST" }
+      ]
+    }
+  },
+  "confidence": 0.77
+}

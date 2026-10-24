@@ -1,0 +1,10 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "BOOK",
+    "title": "3 libros de ciencia ficción para empezar",
+    "summary": "Recomendaciones para quienes nunca han leído el género.",
+    "details": { "entries": [{ "title": "1984", "author": "George Orwell" }, { "title": "Fahrenheit 451" }] }
+  },
+  "confidence": 0.84
+}

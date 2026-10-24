@@ -1,0 +1,18 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "RECIPE",
+    "title": "Pasta cremosa de un solo sartén",
+    "summary": "Pasta con ajo, crema y parmesano lista en 20 minutos.",
+    "details": {
+      "ingredients": [
+        { "text": "250 g de pasta corta" },
+        { "text": "2 dientes de ajo" },
+        { "text": "200 ml de crema" }
+      ],
+      "steps": ["Cuece la pasta en agua con sal.", "Sofríe el ajo y agrega la crema.", "Mezcla la pasta con la salsa."],
+      "prepTime": 20
+    }
+  },
+  "confidence": 0.92
+}

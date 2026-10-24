@@ -1,0 +1,15 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "MOVIE_SERIES",
+    "title": "5 películas de terror para Halloween",
+    "summary": "Recomendaciones de terror psicológico de los últimos años.",
+    "details": {
+      "entries": [
+        { "title": "El conjuro", "mediaType": "MOVIE", "year": 2013 },
+        { "title": "Hereditary", "mediaType": "MOVIE", "year": 2018 }
+      ]
+    }
+  },
+  "confidence": 0.86
+}

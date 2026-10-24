@@ -1,0 +1,10 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "PLACE",
+    "title": "Cafés escondidos en Guadalajara",
+    "summary": "Tres cafeterías poco conocidas en el centro.",
+    "details": { "entries": [{ "name": "Café Luna" }, { "name": "La Tostadora", "cityOrAddress": "Centro, GDL" }] }
+  },
+  "confidence": 0.79
+}

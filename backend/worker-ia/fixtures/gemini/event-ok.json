@@ -1,0 +1,15 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "EVENT",
+    "title": "Festival de jazz en el centro",
+    "summary": "Festival anual con bandas locales e internacionales.",
+    "details": {
+      "name": "Festival de Jazz GDL",
+      "eventDate": "2026-11-08",
+      "eventTime": "18:00",
+      "cityOrAddress": "Guadalajara, Jal."
+    }
+  },
+  "confidence": 0.9
+}

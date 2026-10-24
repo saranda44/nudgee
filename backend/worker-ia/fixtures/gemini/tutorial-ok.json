@@ -1,0 +1,13 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "TUTORIAL",
+    "title": "Cómo pintar una pared sin dejar marcas",
+    "summary": "Técnica rápida con rodillo y cinta de pintor.",
+    "details": {
+      "materials": [{ "text": "Cinta de pintor" }, { "text": "Rodillo" }],
+      "steps": ["Lija la superficie.", "Coloca la cinta en los bordes.", "Pinta de arriba hacia abajo."]
+    }
+  },
+  "confidence": 0.81
+}

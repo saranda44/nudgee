@@ -1,0 +1,10 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "PODCAST",
+    "title": "Podcasts de narrativa en español",
+    "summary": "Dos podcasts recomendados para aprender escuchando historias.",
+    "details": { "entries": [{ "showName": "Radio Ambulante" }, { "showName": "El Hilo", "episode": "La crisis migratoria" }] }
+  },
+  "confidence": 0.8
+}

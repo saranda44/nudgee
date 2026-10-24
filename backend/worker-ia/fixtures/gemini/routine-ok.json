@@ -1,0 +1,13 @@
+{
+  "outcome": "OK",
+  "analysis": {
+    "category": "ROUTINE",
+    "title": "Rutina de piernas en casa",
+    "summary": "Cuatro ejercicios sin equipo para tren inferior.",
+    "details": {
+      "exercises": [{ "text": "3x12 sentadillas" }, { "text": "3x15 zancadas" }],
+      "durationMin": 25
+    }
+  },
+  "confidence": 0.88
+}
