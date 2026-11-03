@@ -14,6 +14,13 @@ resource "aws_cognito_user_pool" "main" {
     require_uppercase = true
   }
 
+  dynamic "lambda_config" {
+    for_each = var.post_auth_lambda_arn != "" ? [1] : []
+    content {
+      post_authentication = var.post_auth_lambda_arn
+    }
+  }
+
   tags = var.tags
 }
 

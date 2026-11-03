@@ -25,3 +25,9 @@ variable "aws_region" {
   description = "Región de AWS"
   type        = string
 }
+
+variable "post_auth_lambda_arn" {
+  description = "ARN de la Lambda Post-Auth"
+  type        = string
+  default     = ""
+}

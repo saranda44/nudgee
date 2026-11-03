@@ -24,9 +24,10 @@ module "dynamodb" {
 module "cognito" {
   source = "./modules/cognito"
 
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = data.aws_region.current.name
+  project_name         = var.project_name
+  environment          = var.environment
+  post_auth_lambda_arn = module.post_auth.lambda_arn
+  aws_region           = data.aws_region.current.name
 
   callback_urls = ["http://localhost:5173/callback"]
   logout_urls   = ["http://localhost:5173/"]
@@ -90,11 +91,11 @@ output "worker_ia_lambda_arn" {
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "${var.project_name}-api-${var.environment}"
   protocol_type = "HTTP"
-  
+
   cors_configuration {
-    allow_origins = ["*"]
-    allow_methods = ["POST", "GET", "OPTIONS", "PATCH", "DELETE"]
-    allow_headers = ["Content-Type", "Authorization", "If-Match", "X-Correlation-Id"]
+    allow_origins  = ["*"]
+    allow_methods  = ["POST", "GET", "OPTIONS", "PATCH", "DELETE"]
+    allow_headers  = ["Content-Type", "Authorization", "If-Match", "X-Correlation-Id"]
     expose_headers = ["ETag", "Location", "Retry-After", "X-Correlation-Id"]
   }
 }
@@ -145,4 +146,27 @@ resource "aws_lambda_permission" "apigw_ingesta" {
 
 output "api_endpoint" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
+}
+
+module "post_auth" {
+  source              = "./modules/post-auth"
+  project_name        = var.project_name
+  environment         = var.environment
+  dynamodb_table_name = module.dynamodb.table_name
+}
+
+resource "aws_lambda_permission" "cognito_post_auth" {
+  statement_id  = "AllowCognitoInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.post_auth.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = module.cognito.user_pool_arn
+}
+
+module "dlq" {
+  source              = "./modules/dlq"
+  project_name        = var.project_name
+  environment         = var.environment
+  dynamodb_table_name = module.dynamodb.table_name
+  dlq_arn             = module.sqs.dlq_arn
 }
