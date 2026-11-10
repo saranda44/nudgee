@@ -1,18 +1,40 @@
-import { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyHandlerV2WithJWTAuthorizer } from 'aws-lambda';
+import { APIGatewayProxyEventV2, APIGatewayProxyHandlerV2 } from "aws-lambda";
+import { randomUUID } from "crypto";
+import { buildInternalErrorResponse } from "./problem.ts";
+import { createRouter } from "./router.ts";
+import { systemRoutes } from "./system.ts";
+import { profileRoutes } from "./profile.ts";
+import { itemRoutes } from "./items.ts";
+import { editItemRoutes } from "./edit-items.ts";
+import { transitionRoutes } from "./transitions.ts";
+import { checklistRoutes } from "./checklist.ts";
+import { pushSubscriptionRoutes } from "./push-subscriptions.ts";
 
-export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event: APIGatewayProxyEventV2WithJWTAuthorizer) => {
-  console.log("Request recibido:", event.rawPath, event.requestContext.http.method);
+// TODO (próximas secciones): E-19 (open notification), E-22 (list notifications).
+const dispatch = createRouter([
+  ...systemRoutes,
+  ...profileRoutes,
+  ...itemRoutes,
+  ...editItemRoutes,
+  ...transitionRoutes,
+  ...checklistRoutes,
+  ...pushSubscriptionRoutes,
+]);
 
-  // TODO:
-  // 1. Enrutar por método + rawPath a la acción correspondiente (perfil, biblioteca,
-  //    acciones de ítem con ETag/If-Match, checklist, suscripciones push,
-  //    apertura desde notificación, /config) — todo /v1 salvo POST /items
-  // 2. Validar el body con los schemas de backend/schemas (Ajv) donde aplique
-  // 3. Transiciones de estado como escrituras condicionales (status + version, RF §4)
-  // 4. Errores en RFC 9457 con code estable
+function getCorrelationId(event: APIGatewayProxyEventV2): string {
+  const header = event.headers?.["x-correlation-id"];
+  return header && header.length > 0 ? header : randomUUID();
+}
 
-  return {
-    statusCode: 404,
-    body: JSON.stringify({ message: "Ruta no implementada" }),
-  };
+export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+  const correlationId = getCorrelationId(event);
+
+  try {
+    return await dispatch(event, correlationId);
+  } catch (error) {
+    console.error(
+      JSON.stringify({ level: "error", correlationId, message: "Unhandled error in api", error: String(error) }),
+    );
+    return buildInternalErrorResponse(correlationId);
+  }
 };

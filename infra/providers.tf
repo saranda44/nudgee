@@ -10,7 +10,7 @@ terraform {
 
   backend "s3" {
     # IMPORTANTE: Reemplaza este valor con el nombre del bucket que arroje el script bootstrap.sh
-    bucket = "nudgee-tf-state-705758913370"
+    bucket = "nudgee-tf-state-306622775630"
     key    = "state/terraform.tfstate"
     region = "us-east-1"
 
