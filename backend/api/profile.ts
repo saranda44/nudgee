@@ -4,12 +4,15 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { SchedulerClient, CreateScheduleCommand } from "@aws-sdk/client-scheduler";
 import { requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
+const schedulerClient = new SchedulerClient({});
 const TABLE_NAME = process.env.TABLE_NAME!;
+const SCHEDULER_ROLE_ARN = process.env.SCHEDULER_ROLE_ARN!;
 
 // Locales soportados (hoy solo es-MX, pero extensible)
 const SUPPORTED_LOCALES = ["es-MX"];
@@ -72,6 +75,53 @@ function validateLocale(locale: string): boolean {
   return SUPPORTED_LOCALES.includes(locale);
 }
 
+/**
+ * Crea el schedule de recordatorios para el usuario (3 franjas: 09:00, 14:00, 19:00).
+ * Si falla, no bloquea la actualización del perfil (scheduleState sigue siendo NONE).
+ */
+async function createUserSchedule(userId: string, timezone: string): Promise<boolean> {
+  try {
+    const scheduleExpression = "cron(0 9,14,19 * * ? *)";
+
+    await schedulerClient.send(
+      new CreateScheduleCommand({
+        Name: `nudgee-${userId}`,
+        GroupName: "nudgee-reminders",
+        ScheduleExpression: scheduleExpression,
+        ScheduleExpressionTimezone: timezone,
+        FlexibleTimeWindow: {
+          Mode: "FLEXIBLE",
+          MaximumWindowInMinutes: 5,
+        },
+        Target: {
+          Arn: (process.env.DISPATCHER_LAMBDA_ARN || "") as string,
+          RoleArn: SCHEDULER_ROLE_ARN,
+          Input: JSON.stringify({
+            slotKey: "{aws.scheduler.scheduled-time/yyyy-MM-dd/HH}",
+            userId,
+            timezone,
+            correlationId: "{aws.scheduler.execution-id}",
+          }) as string,
+        },
+      }),
+    );
+
+    console.log(`Schedule created for user ${userId}`);
+    return true;
+  } catch (error: unknown) {
+    const err = error as any;
+
+    // ConflictException: otro dispositivo lo creó al mismo tiempo (cuenta como éxito)
+    if (err.name === "ConflictException") {
+      console.log(`Schedule for ${userId} already exists (another device)`);
+      return true;
+    }
+
+    console.error(`Error creating schedule for ${userId}:`, error);
+    return false;
+  }
+}
+
 export const profileRoutes: Route[] = [
   // E-03: Ver perfil
   {
@@ -131,33 +181,29 @@ export const profileRoutes: Route[] = [
         return buildValidationErrorResponse(errors, ctx.correlationId);
       }
 
+      // Obtener perfil actual para saber si necesita crear el schedule
+      const currentProfile = await getUserProfile(userId);
+      if (!currentProfile) {
+        return buildProblemResponse(
+          new ProblemError({
+            status: 404,
+            code: "PROFILE_NOT_FOUND",
+            title: "Profile not found",
+          }),
+          ctx.correlationId,
+        );
+      }
+
       // Si no hay nada que actualizar, devuelve el perfil actual
       if (!timezone && !locale) {
-        const profile = await getUserProfile(userId);
-        if (!profile) {
-          return buildProblemResponse(
-            new ProblemError({
-              status: 404,
-              code: "PROFILE_NOT_FOUND",
-              title: "Profile not found",
-            }),
-            ctx.correlationId,
-          );
-        }
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(profile),
+          body: JSON.stringify(currentProfile),
         };
       }
 
-      // TODO (Fase 4): Si scheduleState = NONE, ejecutar CreateSchedule en EventBridge Scheduler.
-      // Por ahora, solo actualizamos la zona. Cuando el Despachador esté listo, agregar:
-      //   if (currentProfile.scheduleState === "NONE") {
-      //     await createSchedule(userId, timezone || currentProfile.timezone);
-      //     scheduleState = "ACTIVE";
-      //   }
-
+      // Preparar updates
       const updates: string[] = [];
       const values: Record<string, unknown> = {};
 
@@ -168,6 +214,19 @@ export const profileRoutes: Route[] = [
       if (locale) {
         updates.push("locale = :loc");
         values[":loc"] = locale;
+      }
+
+      // Si scheduleState = NONE, intentar crear el schedule
+      let scheduleCreated = false;
+      if (currentProfile.scheduleState === "NONE") {
+        const tzToUse = (timezone as string) || currentProfile.timezone;
+        scheduleCreated = await createUserSchedule(userId, tzToUse);
+
+        // Si la creación tuvo éxito, marcar scheduleState = ACTIVE
+        if (scheduleCreated) {
+          updates.push("scheduleState = :active");
+          values[":active"] = "ACTIVE";
+        }
       }
 
       const result = await docClient.send(
