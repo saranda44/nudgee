@@ -170,3 +170,84 @@ module "dlq" {
   dynamodb_table_name = module.dynamodb.table_name
   dlq_arn             = module.sqs.dlq_arn
 }
+
+# Lambda Dispatcher (Fase 4)
+module "dispatcher" {
+  source                 = "./modules/dispatcher"
+  project_name           = var.project_name
+  environment            = var.environment
+  dynamodb_table_name    = module.dynamodb.table_name
+  dynamodb_table_arn     = module.dynamodb.table_arn
+  vapid_public_key       = var.vapid_public_key
+  lambda_index_path      = abspath("${path.module}/../backend/dist/dispatcher/index.js")
+  lambda_timeout         = var.dispatcher_lambda_timeout
+  notification_ttl_days  = var.notification_ttl_days
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+output "dispatcher_lambda_arn" {
+  description = "ARN de la Lambda Dispatcher"
+  value       = module.dispatcher.dispatcher_lambda_arn
+}
+
+output "scheduler_role_arn" {
+  description = "ARN del IAM role para EventBridge Scheduler (usar en Terraform variables)"
+  value       = module.dispatcher.scheduler_role_arn
+}
+
+# Lambda API (Fase 4)
+module "api" {
+  source                  = "./modules/api"
+  project_name            = var.project_name
+  environment             = var.environment
+  dynamodb_table_name     = module.dynamodb.table_name
+  dynamodb_table_arn      = module.dynamodb.table_arn
+  vapid_public_key        = var.vapid_public_key
+  lambda_index_path       = abspath("${path.module}/../backend/dist/api/index.js")
+  lambda_timeout          = var.api_lambda_timeout
+  dispatcher_lambda_arn   = module.dispatcher.dispatcher_lambda_arn
+  scheduler_role_arn      = module.dispatcher.scheduler_role_arn
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+# Permiso para que API Gateway invoque la Lambda API
+resource "aws_lambda_permission" "apigw_api" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
+}
+
+# Integración de la Lambda API en API Gateway
+resource "aws_apigatewayv2_integration" "api" {
+  api_id                 = aws_apigatewayv2_api.http_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = module.api.lambda_invoke_arn
+  payload_format_version = "2.0"
+}
+
+# Ruta catch-all para todos los endpoints de la API (E-01 a E-22)
+# Esto despacha todas las rutas bajo /v1 al handler del router
+resource "aws_apigatewayv2_route" "api_catchall" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "ANY /v1/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "NONE" # E-01 sin auth; otras usan JWT en el handler
+}
+
+# Ruta para /v1 sin proxy (ej. GET /v1/health)
+resource "aws_apigatewayv2_route" "api_root" {
+  api_id             = aws_apigatewayv2_api.http_api.id
+  route_key          = "ANY /v1"
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "NONE"
+}

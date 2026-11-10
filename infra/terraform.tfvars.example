@@ -1,0 +1,16 @@
+# Ejemplo de configuración para terraform apply
+# Copia este archivo a terraform.tfvars y actualiza los valores
+
+aws_region     = "us-east-1"
+project_name   = "nudgee"
+environment    = "dev"
+
+# VAPID public key para Web Push
+# Genera con: npx -y web-push generate-vapid-keys --json
+# Valor público (no secreto)
+vapid_public_key = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U"
+
+# Configuración de Lambdas
+api_lambda_timeout       = 30
+dispatcher_lambda_timeout = 60
+notification_ttl_days     = 7

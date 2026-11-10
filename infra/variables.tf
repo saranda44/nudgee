@@ -15,3 +15,27 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "vapid_public_key" {
+  description = "VAPID public key para Web Push (obtenida de SSM)"
+  type        = string
+  sensitive   = false
+}
+
+variable "api_lambda_timeout" {
+  description = "Timeout de la Lambda API en segundos"
+  type        = number
+  default     = 30
+}
+
+variable "dispatcher_lambda_timeout" {
+  description = "Timeout de la Lambda Dispatcher en segundos"
+  type        = number
+  default     = 60
+}
+
+variable "notification_ttl_days" {
+  description = "Días que durará una notificación en la bandeja antes de expirar"
+  type        = number
+  default     = 7
+}
