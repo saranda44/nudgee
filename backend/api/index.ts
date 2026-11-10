@@ -9,8 +9,8 @@ import { editItemRoutes } from "./edit-items.ts";
 import { transitionRoutes } from "./transitions.ts";
 import { checklistRoutes } from "./checklist.ts";
 import { pushSubscriptionRoutes } from "./push-subscriptions.ts";
+import { notificationRoutes } from "./notifications.ts";
 
-// TODO (próximas secciones): E-19 (open notification), E-22 (list notifications).
 const dispatch = createRouter([
   ...systemRoutes,
   ...profileRoutes,
@@ -19,6 +19,7 @@ const dispatch = createRouter([
   ...transitionRoutes,
   ...checklistRoutes,
   ...pushSubscriptionRoutes,
+  ...notificationRoutes,
 ]);
 
 function getCorrelationId(event: APIGatewayProxyEventV2): string {
