@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
-const LAMBDAS = ["ingesta", "worker-ia", "post-auth", "dlq", "api"];
+const LAMBDAS = ["ingesta", "worker-ia", "post-auth", "dlq", "api", "dispatcher"];
 /** Carpetas estáticas que viajan junto al bundle de ciertas Lambdas (ej. el prompt de Gemini). */
 const STATIC_ASSETS = {
   "worker-ia": ["prompts"],

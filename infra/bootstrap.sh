@@ -20,24 +20,45 @@ aws s3api put-bucket-versioning \
     --bucket "$BUCKET_NAME" \
     --versioning-configuration Status=Enabled
 
-# 3. Crear secretos vacíos en SSM (si no existen)
-parametros=(
-    "/nudgee/GEMINI_API_KEY"
-    "/nudgee/VAPID_PRIVATE_KEY"
-    "/nudgee/VAPID_PUBLIC_KEY"
-)
+# 3. Generar y guardar claves VAPID en SSM (si no existen)
+if aws ssm get-parameter --name "/nudgee/VAPID_PUBLIC_KEY" > /dev/null 2>&1; then
+    echo "Las claves VAPID ya existen en SSM."
+else
+    echo "Generando claves VAPID con web-push..."
+    VAPID_KEYS=$(npx -y web-push generate-vapid-keys --json 2>&1)
 
-for param in "${parametros[@]}"; do
-    if aws ssm get-parameter --name "$param" > /dev/null 2>&1; then
-        echo "El parámetro $param ya existe."
-    else
-        echo "Creando parámetro vacío en SSM: $param"
-        aws ssm put-parameter \
-            --name "$param" \
-            --value "DUMMY_VALUE_CHANGE_ME" \
-            --type "SecureString"
+    VAPID_PUBLIC=$(echo "$VAPID_KEYS" | grep -o '"publicKey":"[^"]*' | cut -d'"' -f4)
+    VAPID_PRIVATE=$(echo "$VAPID_KEYS" | grep -o '"privateKey":"[^"]*' | cut -d'"' -f4)
+
+    if [ -z "$VAPID_PUBLIC" ] || [ -z "$VAPID_PRIVATE" ]; then
+        echo "Error: No se pudieron generar las claves VAPID. Verifica que web-push esté disponible."
+        exit 1
     fi
-done
+
+    echo "Guardando claves VAPID en SSM..."
+    aws ssm put-parameter \
+        --name "/nudgee/VAPID_PUBLIC_KEY" \
+        --value "$VAPID_PUBLIC" \
+        --type "String"
+
+    aws ssm put-parameter \
+        --name "/nudgee/VAPID_PRIVATE_KEY" \
+        --value "$VAPID_PRIVATE" \
+        --type "SecureString"
+
+    echo "✓ Claves VAPID generadas y guardadas."
+fi
+
+# 4. Crear GEMINI_API_KEY vacío en SSM (si no existe)
+if aws ssm get-parameter --name "/nudgee/GEMINI_API_KEY" > /dev/null 2>&1; then
+    echo "El parámetro GEMINI_API_KEY ya existe."
+else
+    echo "Creando parámetro GEMINI_API_KEY en SSM (requiere actualización manual)"
+    aws ssm put-parameter \
+        --name "/nudgee/GEMINI_API_KEY" \
+        --value "DUMMY_VALUE_CHANGE_ME" \
+        --type "SecureString"
+fi
 
 echo "=================================================="
 echo "Stack persistente creado con éxito."
