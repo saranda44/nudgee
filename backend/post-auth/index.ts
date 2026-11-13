@@ -1,15 +1,40 @@
-import { PostAuthenticationTriggerEvent, PostAuthenticationTriggerHandler } from 'aws-lambda';
+import { PostAuthenticationTriggerEvent } from 'aws-lambda';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 
-export const handler: PostAuthenticationTriggerHandler = async (event: PostAuthenticationTriggerEvent) => {
-  console.log("Post-Authentication para usuario:", event.userName);
+const client = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(client);
+const TABLE_NAME = process.env.TABLE_NAME!;
 
-  // TODO:
-  // 1. Extraer sub, email y name de event.request.userAttributes
-  // 2. UpdateItem (upsert) en PROFILE: SET email, name, lastLoginAt;
-  //    if_not_exists en createdAt, timezone, locale y scheduleState = "NONE"
-  // 3. Si la escritura a DynamoDB falla, no atrapar el error: debe propagarse
-  //    para que Cognito bloquee el login
-  // 4. Retornar el event sin modificar (Cognito lo exige en los triggers)
+export const handler = async (event: PostAuthenticationTriggerEvent) => {
+  console.log("Evento Post-Auth recibido para usuario:", event.userName);
 
+  const userId = event.request.userAttributes.sub;
+  const email = event.request.userAttributes.email;
+  const now = new Date().toISOString();
+
+  try {
+    // Usamos UpdateCommand para hacer un "Upsert" (crear si no existe, actualizar si existe)
+    await docClient.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        PK: `USER#${userId}`,
+        SK: 'PROFILE'
+      },
+      UpdateExpression: "SET email = :email, lastLoginAt = :now, createdAt = if_not_exists(createdAt, :now), tz = if_not_exists(tz, :defaultTz)",
+      ExpressionAttributeValues: {
+        ":email": email,
+        ":now": now,
+        ":defaultTz": "America/Mexico_City" // Zona horaria por defecto
+      }
+    }));
+    
+    console.log("Perfil actualizado exitosamente en DynamoDB");
+  } catch (error) {
+    console.error("Error al guardar el perfil en DynamoDB:", error);
+    // No lanzamos el error para no bloquear el login del usuario si falla la BD
+  }
+
+  // Cognito exige que devolvamos el mismo evento que recibimos
   return event;
 };
