@@ -3,7 +3,7 @@
  * handler registrado, valida el formato de los parámetros de ruta y responde 404 ROUTE_NOT_FOUND si nada coincide.
  */
 
-import { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 export interface HandlerContext {

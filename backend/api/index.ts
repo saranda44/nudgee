@@ -1,4 +1,4 @@
-import { APIGatewayProxyEventV2, APIGatewayProxyHandlerV2 } from "aws-lambda";
+import type { APIGatewayProxyEventV2, APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { randomUUID } from "crypto";
 import { buildInternalErrorResponse } from "./problem.ts";
 import { createRouter } from "./router.ts";
