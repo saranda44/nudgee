@@ -4,6 +4,7 @@
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { validateAnalysis, formatValidationErrors, type ValidationIssue } from "../schemas/validators.ts";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
@@ -313,7 +314,9 @@ export const editItemRoutes: Route[] = [
         };
       } catch (error: unknown) {
         if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
+          // El DocumentClient no convierte el Item de la excepción (llega como AttributeValue)
+          const rawItem = (error as any).Item;
+          const oldItem = rawItem ? (unmarshall(rawItem) as Item) : undefined;
           if (oldItem?.version !== version) {
             return buildProblemResponse(
               new ProblemError({
@@ -505,7 +508,9 @@ export const editItemRoutes: Route[] = [
         };
       } catch (error: unknown) {
         if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
+          // El DocumentClient no convierte el Item de la excepción (llega como AttributeValue)
+          const rawItem = (error as any).Item;
+          const oldItem = rawItem ? (unmarshall(rawItem) as Item) : undefined;
           if (oldItem?.version !== version) {
             return buildProblemResponse(
               new ProblemError({

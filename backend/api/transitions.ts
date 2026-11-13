@@ -6,7 +6,8 @@
  * condicional se traduce a 404 (no existe o expiró), 412 (versión) o 409 (estado).
  */
 
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
@@ -135,10 +136,15 @@ function assertTransition(
   }
 }
 
-/** Traduce ConditionalCheckFailedException (con `Item` = ALL_OLD) a 404/412/409. */
+/**
+ * Traduce ConditionalCheckFailedException (con `Item` = ALL_OLD) a 404/412/409.
+ * El DocumentClient no convierte el `Item` de la excepción: llega en formato
+ * AttributeValue (`{ N: "2" }`) y hay que hacer `unmarshall`.
+ */
 function rethrowConditionalFailure(error: unknown, version: number, action: string, allowed: Status[]): never {
   if ((error as { name?: string })?.name !== "ConditionalCheckFailedException") throw error;
-  const oldItem = (error as { Item?: Item }).Item;
+  const rawItem = (error as { Item?: Record<string, AttributeValue> }).Item;
+  const oldItem = rawItem ? (unmarshall(rawItem) as Item) : undefined;
   assertTransition(oldItem, version, action, allowed);
   // El ítem actual sí permite la acción: alguien lo cambió entre la condición y la lectura.
   throw new ProblemError({ status: 412, code: "VERSION_MISMATCH", title: "Item was modified" });
