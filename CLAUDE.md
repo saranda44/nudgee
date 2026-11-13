@@ -50,7 +50,7 @@ Cada integrante usa su propia cuenta y bucket de state; `providers.tf` trae el b
 cd backend && npm run build
 cd infra
 terraform init -reconfigure -backend-config="bucket=nudgee-tf-state-<ACCOUNT_ID>"
-VAPID=$(aws ssm get-parameter --name /nudgee/VAPID_PUBLIC_KEY --query Parameter.Value --output text)
+VAPID=$(aws ssm get-parameter --name /nudgee/VAPID_PUBLIC_KEY --with-decryption --query Parameter.Value --output text)
 terraform plan -var "environment=dev-<nombre>" -var "vapid_public_key=$VAPID" -out=tf.plan   # revisar antes de apply
 terraform apply tf.plan
 ```
