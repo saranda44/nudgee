@@ -38,7 +38,24 @@ cd infra && terraform fmt -check && terraform validate
 cd backend && npm test            # node:test sobre **/*.test.ts (Node ≥ 22.18 en local; Lambda corre en Node 20)
 ```
 
-Tests solo en `api/router.test.ts` y `api/transitions.test.ts` (E-10…E-17); el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS. Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
+Tests en `api/*.test.ts` (router, transiciones E-10…E-17, recurso Item); el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS (el `Item` de la falla condicional viene *marshalled*, igual que en el SDK real). Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
+
+Los mocks no detectan errores que solo DynamoDB real rechaza (palabras reservadas como `timezone`/`name`, sintaxis de `UpdateExpression`): después de desplegar, prueba con `curl` contra la API.
+
+### Desplegar en tu Learner Lab
+
+Cada integrante usa su propia cuenta y bucket de state; `providers.tf` trae el bucket de otra cuenta, así que se sobreescribe en `init` (sin editar el archivo):
+
+```bash
+cd backend && npm run build
+cd infra
+terraform init -reconfigure -backend-config="bucket=nudgee-tf-state-<ACCOUNT_ID>"
+VAPID=$(aws ssm get-parameter --name /nudgee/VAPID_PUBLIC_KEY --query Parameter.Value --output text)
+terraform plan -var "environment=dev-<nombre>" -var "vapid_public_key=$VAPID" -out=tf.plan   # revisar antes de apply
+terraform apply tf.plan
+```
+
+Learner Lab no permite crear roles IAM: toda Lambda (y EventBridge Scheduler) usa `LabRole` vía `data "aws_iam_role"`.
 
 ## Convenciones del backend
 
