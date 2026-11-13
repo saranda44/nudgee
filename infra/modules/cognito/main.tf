@@ -18,6 +18,8 @@ resource "aws_cognito_user_pool" "main" {
     for_each = var.post_auth_lambda_arn != "" ? [1] : []
     content {
       post_authentication = var.post_auth_lambda_arn
+      # El registro en el Hosted UI inicia sesión sin disparar Post Authentication
+      post_confirmation = var.post_auth_lambda_arn
     }
   }
 

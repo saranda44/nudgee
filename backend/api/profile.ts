@@ -204,15 +204,19 @@ export const profileRoutes: Route[] = [
       }
 
       // Preparar updates
+      // `timezone` es palabra reservada de DynamoDB: todos los atributos van con alias.
       const updates: string[] = [];
       const values: Record<string, unknown> = {};
+      const names: Record<string, string> = {};
 
       if (timezone) {
-        updates.push("timezone = :tz");
+        updates.push("#timezone = :tz");
+        names["#timezone"] = "timezone";
         values[":tz"] = timezone;
       }
       if (locale) {
-        updates.push("locale = :loc");
+        updates.push("#locale = :loc");
+        names["#locale"] = "locale";
         values[":loc"] = locale;
       }
 
@@ -224,7 +228,8 @@ export const profileRoutes: Route[] = [
 
         // Si la creación tuvo éxito, marcar scheduleState = ACTIVE
         if (scheduleCreated) {
-          updates.push("scheduleState = :active");
+          updates.push("#scheduleState = :active");
+          names["#scheduleState"] = "scheduleState";
           values[":active"] = "ACTIVE";
         }
       }
@@ -234,6 +239,7 @@ export const profileRoutes: Route[] = [
           TableName: TABLE_NAME,
           Key: { PK: `USER#${userId}`, SK: "PROFILE" },
           UpdateExpression: `SET ${updates.join(", ")}`,
+          ExpressionAttributeNames: names,
           ExpressionAttributeValues: values,
           ReturnValues: "ALL_NEW",
         }),
