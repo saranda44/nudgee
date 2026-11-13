@@ -1,6 +1,32 @@
-# .gitignore
+# Dependencias
+node_modules/
+
+# Artefactos de build (se regeneran con `npm run build` y Terraform)
+dist/
+*.zip
+*.tsbuildinfo
+coverage/
+
+# Terraform: el state vive en S3; tfvars puede tener valores por entorno
 .terraform/
 *.tfstate
-*.tfstate.backup
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+*.pem
+
+# Claude Code: configuración personal (la compartida sí se versiona)
+.claude/settings.local.json
+
+# Sistema operativo y editores
 .DS_Store
-node_modules/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
