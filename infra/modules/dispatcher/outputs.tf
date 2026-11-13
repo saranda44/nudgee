@@ -9,8 +9,8 @@ output "function_name" {
 }
 
 output "scheduler_role_arn" {
-  value       = aws_iam_role.scheduler_role.arn
-  description = "ARN del IAM role para EventBridge Scheduler (usar en E-04)"
+  value       = data.aws_iam_role.lab_role.arn
+  description = "ARN del IAM role para EventBridge Scheduler (LabRole; usar en E-04)"
 }
 
 output "dispatcher_lambda_arn" {

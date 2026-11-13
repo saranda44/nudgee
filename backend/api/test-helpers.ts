@@ -6,6 +6,7 @@
 import { mock } from "node:test";
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { marshall } from "@aws-sdk/util-dynamodb";
 
 export const TEST_SUB = "user-sub-123";
 export const TEST_VIDEO_ID = "dQw4w9WgXcQ";
@@ -69,11 +70,14 @@ export function mockDdb(impl: (input: CommandInput, commandName: string) => unkn
   };
 }
 
-/** Error equivalente al que lanza el SDK cuando falla una ConditionExpression. */
+/**
+ * Error equivalente al que lanza el SDK cuando falla una ConditionExpression. Igual que en
+ * AWS real, el `Item` viene en formato AttributeValue (el DocumentClient no lo convierte).
+ */
 export function conditionalFailure(oldItem?: Record<string, unknown>): Error {
   const error = new Error("The conditional request failed") as Error & { Item?: Record<string, unknown> };
   error.name = "ConditionalCheckFailedException";
-  if (oldItem) error.Item = oldItem;
+  if (oldItem) error.Item = marshall(oldItem, { removeUndefinedValues: true });
   return error;
 }
 

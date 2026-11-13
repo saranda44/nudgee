@@ -29,8 +29,9 @@ module "cognito" {
   post_auth_lambda_arn = module.post_auth.lambda_arn
   aws_region           = data.aws_region.current.name
 
-  callback_urls = ["http://localhost:5173/callback"]
-  logout_urls   = ["http://localhost:5173/"]
+  # Rutas de Diseño UX §1.5: P-00 /auth/callback y P-01 /login (dev local con Vite)
+  callback_urls = ["http://localhost:5173/auth/callback"]
+  logout_urls   = ["http://localhost:5173/login"]
 
   tags = {
     Project     = var.project_name
@@ -173,15 +174,15 @@ module "dlq" {
 
 # Lambda Dispatcher (Fase 4)
 module "dispatcher" {
-  source                 = "./modules/dispatcher"
-  project_name           = var.project_name
-  environment            = var.environment
-  dynamodb_table_name    = module.dynamodb.table_name
-  dynamodb_table_arn     = module.dynamodb.table_arn
-  vapid_public_key       = var.vapid_public_key
-  lambda_index_path      = abspath("${path.module}/../backend/dist/dispatcher/index.js")
-  lambda_timeout         = var.dispatcher_lambda_timeout
-  notification_ttl_days  = var.notification_ttl_days
+  source                = "./modules/dispatcher"
+  project_name          = var.project_name
+  environment           = var.environment
+  dynamodb_table_name   = module.dynamodb.table_name
+  dynamodb_table_arn    = module.dynamodb.table_arn
+  vapid_public_key      = var.vapid_public_key
+  lambda_index_path     = abspath("${path.module}/../backend/dist/dispatcher/index.js")
+  lambda_timeout        = var.dispatcher_lambda_timeout
+  notification_ttl_days = var.notification_ttl_days
 
   tags = {
     Project     = var.project_name
@@ -201,16 +202,16 @@ output "scheduler_role_arn" {
 
 # Lambda API (Fase 4)
 module "api" {
-  source                  = "./modules/api"
-  project_name            = var.project_name
-  environment             = var.environment
-  dynamodb_table_name     = module.dynamodb.table_name
-  dynamodb_table_arn      = module.dynamodb.table_arn
-  vapid_public_key        = var.vapid_public_key
-  lambda_index_path       = abspath("${path.module}/../backend/dist/api/index.js")
-  lambda_timeout          = var.api_lambda_timeout
-  dispatcher_lambda_arn   = module.dispatcher.dispatcher_lambda_arn
-  scheduler_role_arn      = module.dispatcher.scheduler_role_arn
+  source                = "./modules/api"
+  project_name          = var.project_name
+  environment           = var.environment
+  dynamodb_table_name   = module.dynamodb.table_name
+  dynamodb_table_arn    = module.dynamodb.table_arn
+  vapid_public_key      = var.vapid_public_key
+  lambda_index_path     = abspath("${path.module}/../backend/dist/api/index.js")
+  lambda_timeout        = var.api_lambda_timeout
+  dispatcher_lambda_arn = module.dispatcher.dispatcher_lambda_arn
+  scheduler_role_arn    = module.dispatcher.scheduler_role_arn
 
   tags = {
     Project     = var.project_name
@@ -235,19 +236,20 @@ resource "aws_apigatewayv2_integration" "api" {
   payload_format_version = "2.0"
 }
 
-# Ruta catch-all para todos los endpoints de la API (E-01 a E-22)
-# Esto despacha todas las rutas bajo /v1 al handler del router
+# Ruta catch-all para los endpoints de la API (E-02 a E-22). El authorizer JWT es el que
+# llena requestContext.authorizer.jwt.claims; el router toma userId de claims.sub (NFR-05).
 resource "aws_apigatewayv2_route" "api_catchall" {
   api_id             = aws_apigatewayv2_api.http_api.id
   route_key          = "ANY /v1/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
-  authorization_type = "NONE" # E-01 sin auth; otras usan JWT en el handler
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
-# Ruta para /v1 sin proxy (ej. GET /v1/health)
-resource "aws_apigatewayv2_route" "api_root" {
+# E-01: health check público (la ruta más específica gana sobre el catch-all)
+resource "aws_apigatewayv2_route" "api_health" {
   api_id             = aws_apigatewayv2_api.http_api.id
-  route_key          = "ANY /v1"
+  route_key          = "GET /v1/health"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "NONE"
 }

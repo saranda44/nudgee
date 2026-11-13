@@ -6,6 +6,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 import { requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { itemResponse, toItemDto } from "./item-dto.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -84,7 +85,7 @@ export const itemRoutes: Route[] = [
           return {
             statusCode: 200,
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items, nextCursor: null }),
+            body: JSON.stringify({ items: items.map(toItemDto), nextCursor: null }),
           };
         }
 
@@ -134,7 +135,7 @@ export const itemRoutes: Route[] = [
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items, nextCursor }),
+          body: JSON.stringify({ items: items.map(toItemDto), nextCursor }),
         };
     },
   },
@@ -166,17 +167,7 @@ export const itemRoutes: Route[] = [
         );
       }
 
-      const item = result.Item as Item;
-      const version = item.version as number | undefined;
-
-      return {
-        statusCode: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...(version ? { ETag: `"${version}"` } : {}),
-        },
-        body: JSON.stringify(item),
-      };
+      return itemResponse(result.Item as Item);
     },
   },
 ];
