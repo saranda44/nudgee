@@ -21,7 +21,10 @@ aws s3api put-bucket-versioning \
     --versioning-configuration Status=Enabled
 
 # 3. Generar y guardar claves VAPID en SSM (si no existen)
-if aws ssm get-parameter --name "/nudgee/VAPID_PUBLIC_KEY" > /dev/null 2>&1; then
+# Una llave pública VAPID válida es un punto P-256 sin comprimir: 87 caracteres base64url.
+EXISTING_VAPID=$(aws ssm get-parameter --name "/nudgee/VAPID_PUBLIC_KEY" --with-decryption \
+    --query Parameter.Value --output text 2>/dev/null || true)
+if [[ "$EXISTING_VAPID" =~ ^B[A-Za-z0-9_-]{86}$ ]]; then
     echo "Las claves VAPID ya existen en SSM."
 else
     echo "Generando claves VAPID con web-push..."
@@ -39,12 +42,14 @@ else
     aws ssm put-parameter \
         --name "/nudgee/VAPID_PUBLIC_KEY" \
         --value "$VAPID_PUBLIC" \
-        --type "String"
+        --type "String" \
+        --overwrite
 
     aws ssm put-parameter \
         --name "/nudgee/VAPID_PRIVATE_KEY" \
         --value "$VAPID_PRIVATE" \
-        --type "SecureString"
+        --type "SecureString" \
+        --overwrite
 
     echo "✓ Claves VAPID generadas y guardadas."
 fi

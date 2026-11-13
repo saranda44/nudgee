@@ -6,12 +6,13 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
+  GetCommand,
   QueryCommand,
   UpdateCommand,
   TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { requireUserId, type Route, type HandlerContext } from "./router.ts";
-import { buildValidationErrorResponse } from "./problem.ts";
+import { ProblemError, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -57,7 +58,7 @@ function formatNotification(item: Notification): Notification {
     messageKey: item.messageKey,
     messageParams: item.messageParams || {},
     sentAt: item.sentAt,
-    openedAt: item.openedAt,
+    openedAt: item.openedAt ?? null,
   };
 }
 
@@ -66,18 +67,6 @@ function formatNotification(item: Notification): Notification {
  */
 async function countUnreadNotifications(userId: string): Promise<number> {
   try {
-    const result = await docClient.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-        ExpressionAttributeValues: {
-          ":pk": `USER#${userId}`,
-          ":sk": "NOTIF#",
-        },
-        Select: "COUNT",
-      }),
-    );
-
     // Contar manualmente los no leídos (openedAt = null)
     const allNotifs = await docClient.send(
       new QueryCommand({
@@ -108,70 +97,61 @@ export const notificationRoutes: Route[] = [
       const userId = requireUserId(ctx);
       const { slotKey } = ctx.params;
 
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const notifKey = { PK: `USER#${userId}`, SK: `NOTIF#${slotKey}` };
+
+      const notif = (await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: notifKey, ConsistentRead: true })))
+        .Item;
+      // El TTL de DynamoDB borra con retraso: un registro vencido cuenta como inexistente.
+      if (!notif || (typeof notif.expiresAt === "number" && notif.expiresAt * 1000 <= now.getTime())) {
+        throw new ProblemError({ status: 404, code: "NOTIFICATION_NOT_FOUND", title: "Notification not found" });
+      }
+      // Solo la primera apertura cuenta como respuesta (Contratos E-19).
+      if (notif.openedAt) return { statusCode: 204, headers: {}, body: "" };
+
+      const openNotif = {
+        TableName: TABLE_NAME,
+        Key: notifKey,
+        UpdateExpression: "SET openedAt = :now",
+        ConditionExpression: "attribute_not_exists(openedAt)",
+        ExpressionAttributeValues: { ":now": nowIso },
+      };
 
       try {
-        // TransactWriteItems:
-        // 1. Update NOTIF# con openedAt
-        // 2. Conditional update del ítem: si status = PENDING, set notifyCount = 0
-
+        // AP-14: openedAt + notifyCount = 0 si el ítem sigue en PENDING (D-04, T-07)
         await docClient.send(
           new TransactWriteCommand({
             TransactItems: [
+              { Update: openNotif },
               {
                 Update: {
                   TableName: TABLE_NAME,
-                  Key: { PK: `USER#${userId}`, SK: `NOTIF#${slotKey}` },
-                  UpdateExpression: "SET openedAt = :now",
-                  ExpressionAttributeValues: {
-                    ":now": now,
-                  },
-                },
-              },
-              {
-                Update: {
-                  TableName: TABLE_NAME,
-                  Key: { PK: `USER#${userId}`, SK: `NOTIF#${slotKey}` },
-                  UpdateExpression: "SET #s = :status",
+                  Key: { PK: `USER#${userId}`, SK: `ITEM#${notif.videoId}` },
+                  UpdateExpression: "SET notifyCount = :zero",
                   ConditionExpression: "#s = :pending",
                   ExpressionAttributeNames: { "#s": "status" },
-                  ExpressionAttributeValues: {
-                    ":status": "PENDING",
-                    ":pending": "PENDING",
-                  },
-                  ReturnValuesOnConditionCheckFailure: "NONE",
+                  ExpressionAttributeValues: { ":zero": 0, ":pending": "PENDING" },
                 },
               },
             ],
           }),
         );
-      } catch (error: unknown) {
-        const err = error as any;
-
-        // Si la notificación no existe (ValidationException)
-        if (
-          err.name === "ValidationException" ||
-          err.message?.includes("Transaction request cannot include multiple operations on one item")
-        ) {
-          // Reintenta con solo el update de la notificación
-          try {
-            await docClient.send(
-              new UpdateCommand({
-                TableName: TABLE_NAME,
-                Key: { PK: `USER#${userId}`, SK: `NOTIF#${slotKey}` },
-                UpdateExpression: "SET openedAt = :now",
-                ExpressionAttributeValues: {
-                  ":now": now,
-                },
-              }),
-            );
-          } catch {
-            // Notificación no existe, pero devolvemos 204 igual (idempotente)
-          }
+      } catch (error: any) {
+        if (error?.name !== "TransactionCanceledException") throw error;
+        const [notifCode, itemCode] = (error.CancellationReasons ?? []).map((r: any) => r?.Code);
+        // Otra petición la abrió primero: idempotente.
+        if (notifCode === "ConditionalCheckFailed") return { statusCode: 204, headers: {}, body: "" };
+        if (itemCode !== "ConditionalCheckFailed") throw error;
+        // El ítem ya no está en PENDING (o se borró): solo se registra la apertura.
+        try {
+          await docClient.send(new UpdateCommand(openNotif));
+        } catch (retryError: any) {
+          if (retryError?.name !== "ConditionalCheckFailedException") throw retryError;
         }
       }
 
-      // Siempre devuelve 204 (idempotente)
+      // 204 también si el ítem ya no está en PENDING (Contratos E-19)
       return {
         statusCode: 204,
         headers: {},

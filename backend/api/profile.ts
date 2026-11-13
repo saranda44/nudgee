@@ -96,12 +96,15 @@ async function createUserSchedule(userId: string, timezone: string): Promise<boo
         Target: {
           Arn: (process.env.DISPATCHER_LAMBDA_ARN || "") as string,
           RoleArn: SCHEDULER_ROLE_ARN,
+          // Arquitectura §5.2: 2 intentos, edad máxima 10 min; la idempotencia la da NOTIF#{slotKey}.
+          RetryPolicy: { MaximumRetryAttempts: 2, MaximumEventAgeInSeconds: 600 },
+          // Scheduler sustituye `<aws.scheduler.*>` (hora ISO en UTC, sin formato); el dispatcher
+          // calcula el slotKey local con la zona del PROFILE.
           Input: JSON.stringify({
-            slotKey: "{aws.scheduler.scheduled-time/yyyy-MM-dd/HH}",
             userId,
-            timezone,
-            correlationId: "{aws.scheduler.execution-id}",
-          }) as string,
+            scheduledTime: "<aws.scheduler.scheduled-time>",
+            correlationId: "<aws.scheduler.execution-id>",
+          }),
         },
       }),
     );

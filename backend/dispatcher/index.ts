@@ -1,441 +1,339 @@
 /**
- * Dispatcher: Lambda disparada por EventBridge Scheduler
- * Lee ítems PENDING para un slotKey, arma notificaciones, envía Web Push y actualiza la bandeja.
+ * Dispatcher: Lambda invocada por EventBridge Scheduler en cada franja (RF §5, Arquitectura §5.2).
+ * Lee perfil, GSI1 y suscripciones (AP-12) → pasa a DORMANT los ignorados (AP-15) → registra
+ * a lo más un recordatorio por franja de forma idempotente (AP-13) → Web Push → deliveryStatus.
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
-  QueryCommand,
-  PutCommand,
-  UpdateCommand,
+  DeleteCommand,
   GetCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 import webpush from "web-push";
 import { randomUUID } from "crypto";
+import { loadConfig, planSlot, slotKeyFor, type Candidate } from "./engine.ts";
+import { buildReminderMessage } from "./messages.ts";
 
-const ddbClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
 const ssmClient = new SSMClient({});
 
 const TABLE_NAME = process.env.TABLE_NAME!;
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY!;
 
-type Item = Record<string, unknown>;
-type Notification = Record<string, unknown>;
-type PushSubscription = Record<string, unknown>;
+/** Intentos de registro por franja si los primeros candidatos cambiaron de estado. */
+const MAX_REGISTER_ATTEMPTS = 5;
+/** Tiempo que el push service retiene la push si el dispositivo está apagado. */
+const PUSH_TTL_SECONDS = 4 * 60 * 60;
 
-// Cache de VAPID private key
-let vapidPrivateKeyCache: string | null = null;
+/** Input del schedule (api/profile.ts); Scheduler sustituye los `<aws.scheduler.*>`. */
+export interface DispatcherEvent {
+  userId?: string;
+  scheduledTime?: string;
+  correlationId?: string;
+}
 
-/**
- * Obtiene el VAPID private key del SSM (caché por contenedor).
- */
+export type DispatchOutcome =
+  | { result: "SENT"; slotKey: string; videoId: string; deliveryStatus: string; targetCount: number; successCount: number }
+  | { result: "ALREADY_SENT" | "NO_CANDIDATES"; slotKey: string; dormant: number }
+  | { result: "NO_PROFILE" | "INVALID_EVENT" };
+
+type Level = "info" | "warn" | "error";
+function log(level: Level, correlationId: string, message: string, extra: Record<string, unknown> = {}) {
+  // Nunca email, nombre, endpoints ni llaves (NFR-08).
+  console.log(JSON.stringify({ level, correlationId, message, ...extra }));
+}
+
+let vapidPrivateKeyCache: string | undefined;
 async function getVapidPrivateKey(): Promise<string> {
-  if (vapidPrivateKeyCache) return vapidPrivateKeyCache;
-
-  const result = await ssmClient.send(
-    new GetParameterCommand({
-      Name: "/nudgee/VAPID_PRIVATE_KEY",
-      WithDecryption: true,
-    }),
-  );
-
-  vapidPrivateKeyCache = result.Parameter?.Value || "";
+  if (!vapidPrivateKeyCache) {
+    const result = await ssmClient.send(
+      new GetParameterCommand({ Name: "/nudgee/VAPID_PRIVATE_KEY", WithDecryption: true }),
+    );
+    const value = result.Parameter?.Value;
+    if (!value) throw new Error("VAPID_PRIVATE_KEY vacío en SSM");
+    vapidPrivateKeyCache = value;
+  }
   return vapidPrivateKeyCache;
 }
 
-/**
- * Query GSI1 para obtener ítems PENDING en un slot.
- */
-async function queryPendingItems(slotKey: string, userId: string): Promise<Item[]> {
-  try {
-    const result = await docClient.send(
+/** Todos los ítems PENDING del usuario (GSI1 disperso, Modelo §4.2). */
+async function queryCandidates(userId: string): Promise<Candidate[]> {
+  const items: Candidate[] = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const page = await docClient.send(
       new QueryCommand({
         TableName: TABLE_NAME,
         IndexName: "GSI1",
-        KeyConditionExpression: "GSI1PK = :gsi1pk",
-        ExpressionAttributeValues: {
-          ":gsi1pk": `PENDING#${slotKey}`,
-        },
+        KeyConditionExpression: "GSI1PK = :pk",
+        ExpressionAttributeValues: { ":pk": `USER#${userId}` },
+        ExclusiveStartKey: startKey,
       }),
     );
-
-    // Filtrar por userId (el GSI1 no incluye el PK)
-    return (result.Items || []).filter((item) => {
-      const pk = item.PK as string;
-      return pk === `USER#${userId}`;
-    });
-  } catch (error) {
-    console.error(`Error querying GSI1 for slotKey ${slotKey}:`, error);
-    return [];
-  }
+    items.push(...((page.Items ?? []) as Candidate[]));
+    startKey = page.LastEvaluatedKey;
+  } while (startKey);
+  return items;
 }
 
-/**
- * Obtiene suscripciones push activas del usuario.
- */
-async function getPushSubscriptions(userId: string): Promise<PushSubscription[]> {
-  try {
-    const result = await docClient.send(
-      new QueryCommand({
-        TableName: TABLE_NAME,
-        KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-        ExpressionAttributeValues: {
-          ":pk": `USER#${userId}`,
-          ":sk": "SUB#",
-        },
-      }),
-    );
-
-    return (result.Items || []) as PushSubscription[];
-  } catch (error) {
-    console.error(`Error querying push subscriptions for user ${userId}:`, error);
-    return [];
-  }
-}
-
-/**
- * Calcula messageKey según la categoría.
- */
-function calculateMessageKey(category: string | null, isList: boolean): string {
-  if (isList) return "reminder.list";
-  if (category) return `reminder.${category}`;
-  return "reminder.OTHER";
-}
-
-/**
- * Calcula messageParams (remaining, total para listas).
- */
-function calculateMessageParams(
-  item: Item,
-  isList: boolean,
-): Record<string, number> {
-  if (!isList) return {};
-
-  const checklist = (item.checklist || {}) as Record<string, unknown>;
-  const details = (item.details || {}) as Record<string, unknown>;
-  const entries = (details.entries || []) as Array<{ id?: string }>;
-
-  const total = entries.length;
-  const remaining = entries.filter((e) => !checklist[e.id || ""]).length;
-
-  return { remaining, total };
-}
-
-/**
- * Determina si una categoría es lista.
- */
-function isCategoryList(category: string | null): boolean {
-  return ["MOVIE_SERIES", "PLACE", "BOOK", "MUSIC", "PODCAST"].includes(
-    category as string,
+async function querySubscriptions(userId: string): Promise<Record<string, any>[]> {
+  const result = await docClient.send(
+    new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :sub)",
+      ExpressionAttributeValues: { ":pk": `USER#${userId}`, ":sub": "SUB#" },
+    }),
   );
+  return (result.Items ?? []) as Record<string, any>[];
 }
 
-/**
- * Arma la notificación para guardar en bandeja.
- */
-function buildNotification(item: Item, slotKey: string): Notification {
-  const category = item.category as string | null;
-  const isList = isCategoryList(category);
-  const messageKey = calculateMessageKey(category, isList);
-  const messageParams = calculateMessageParams(item, isList);
-  const now = new Date().toISOString();
-
-  // TTL: 7 días (configurable)
-  const ttlDays = parseInt(process.env.NOTIFICATION_TTL_DAYS || "7", 10);
-  const expiresAt = Math.floor(new Date(now).getTime() / 1000) + ttlDays * 86400;
-
-  const pk = item.PK as string;
-  const userId = pk.split("#")[1];
-
-  return {
-    PK: `USER#${userId}`,
-    SK: `NOTIF#${slotKey}`,
-    videoId: item.videoId,
-    category,
-    title: item.title,
-    messageKey,
-    messageParams,
-    sentAt: now,
-    openedAt: null,
-    expiresAt,
-    entityType: "NOTIFICATION",
-  };
-}
-
-/**
- * Plantillas de mensajes por categoría (es-MX).
- */
-function getMessageTemplate(
-  category: string | null,
-  isList: boolean,
-): { title: string; body: string } {
-  const templates: Record<string, { title: string; body: string }> = {
-    RECIPE: { title: "¿Hoy la cocinas?", body: "{title}" },
-    ROUTINE: { title: "¿Hoy la haces?", body: "{title}" },
-    TUTORIAL: { title: "¿Hoy lo intentas?", body: "{title}" },
-    MOVIE_SERIES: {
-      title: "¿Hoy ves algo?",
-      body: "{title}",
-    },
-    PLACE: { title: "¿Hoy vas?", body: "{title}" },
-    BOOK: { title: "¿Empiezas a leer?", body: "{title}" },
-    MUSIC: { title: "¿Lo escuchas hoy?", body: "{title}" },
-    PODCAST: { title: "¿Lo escuchas hoy?", body: "{title}" },
-    EVENT: { title: "Tu evento es el {fecha}", body: "{title}" },
-    OTHER: { title: "¿Hoy es el día?", body: "{title}" },
-  };
-
-  const template = templates[category || "OTHER"] || templates.OTHER;
-
-  // Para listas, agregar el contador
-  if (isList) {
-    template.body = "{title}";
-  }
-
-  return template;
-}
-
-/**
- * Arma el payload de Web Push (sin cifrado, lo hace web-push).
- */
-function buildPushPayload(
-  item: Item,
-  slotKey: string,
-  messageParams: Record<string, number>,
-  correlationId: string,
-): Record<string, unknown> {
-  const category = item.category as string | null;
-  const isList = isCategoryList(category);
-  const template = getMessageTemplate(category, isList);
-  const title = item.title as string;
-
-  let pushTitle = template.title;
-  let pushBody = template.body;
-
-  // Reemplazar placeholders
-  if (category === "EVENT") {
-    const eventDate = (item.details as Record<string, unknown>)?.eventDate || "";
-    pushTitle = pushTitle.replace("{fecha}", String(eventDate));
-  }
-
-  // Para listas con pending
-  if (isList && messageParams.remaining > 0) {
-    pushBody = `${title} · Te faltan ${messageParams.remaining} de ${messageParams.total}`;
-  } else {
-    pushBody = pushBody.replace("{title}", title);
-  }
-
-  // Truncar title a 120 caracteres si es necesario
-  if (pushTitle.length > 120) {
-    pushTitle = pushTitle.substring(0, 117) + "...";
-  }
-
-  return {
-    v: 1,
-    type: "REMINDER",
-    slotKey,
-    videoId: item.videoId,
-    title: pushTitle,
-    body: pushBody,
-    icon: "/icons/icon-192.png",
-    url: `/items/${item.videoId}?slot=${slotKey}`,
-    correlationId,
-  };
-}
-
-/**
- * Guarda la notificación en DynamoDB (bandeja).
- */
-async function saveNotification(notification: Notification): Promise<void> {
+/** AP-15 / T-07: PENDING con notifyCount ≥ máximo → DORMANT (sale de GSI1). */
+async function markDormant(userId: string, candidate: Candidate, max: number, nowIso: string, correlationId: string) {
   try {
     await docClient.send(
-      new PutCommand({
+      new UpdateCommand({
         TableName: TABLE_NAME,
-        Item: notification,
+        Key: { PK: `USER#${userId}`, SK: `ITEM#${candidate.videoId}` },
+        UpdateExpression:
+          "SET #s = :dormant, statusUpdatedAt = :now, #v = #v + :one REMOVE GSI1PK, GSI1SK, snoozeUntil, scheduledFor",
+        ConditionExpression: "#s = :pending AND notifyCount >= :max",
+        ExpressionAttributeNames: { "#s": "status", "#v": "version" },
+        ExpressionAttributeValues: { ":dormant": "DORMANT", ":pending": "PENDING", ":now": nowIso, ":one": 1, ":max": max },
       }),
     );
-  } catch (error) {
-    console.error("Error saving notification:", error);
+    log("info", correlationId, "Ítem pasa a DORMANT (T-07)", { videoId: candidate.videoId });
+    return true;
+  } catch (error: any) {
+    if (error?.name === "ConditionalCheckFailedException") return false; // ya cambió: GSI1 desfasado
     throw error;
   }
 }
 
-/**
- * Envía Web Push a una suscripción.
- */
-async function sendWebPushToSubscription(
-  subscription: PushSubscription,
-  payload: Record<string, unknown>,
-  vapidPrivateKey: string,
-): Promise<void> {
-  try {
-    const endpoint = subscription.endpoint as string;
-    const keysObj = subscription.keys as Record<string, string>;
+function cancellationCodes(error: any): string[] {
+  return (error?.CancellationReasons ?? []).map((r: any) => r?.Code ?? "None");
+}
 
-    webpush.setVapidDetails("mailto:nudgee@example.com", VAPID_PUBLIC_KEY, vapidPrivateKey);
+export const handler = async (event: DispatcherEvent): Promise<DispatchOutcome> => {
+  const correlationId = event?.correlationId || randomUUID();
+  const userId = event?.userId;
+  const scheduledAt = event?.scheduledTime ? new Date(event.scheduledTime) : undefined;
 
-    await webpush.sendNotification(
-      {
-        endpoint,
-        keys: {
-          p256dh: keysObj.p256dh || "",
-          auth: keysObj.auth || "",
-        },
-      },
-      JSON.stringify(payload),
-    );
-  } catch (error: unknown) {
-    const err = error as any;
-
-    // 410 Gone → suscripción expirada, eliminarla
-    if (err.statusCode === 410) {
-      console.log(`Push subscription expired: ${(subscription.endpoint as string).substring(0, 50)}`);
-      // No borramos acá para evitar side effects; el cliente las limpia al iniciar
-      return;
-    }
-
-    // 400 Bad Request → probablemente inválida
-    if (err.statusCode === 400) {
-      console.warn(`Invalid push subscription: ${err.message}`);
-      return;
-    }
-
-    // Otros errores → log pero no falla el dispatcher
-    console.error(`Error sending push notification: ${err.message}`);
+  if (!userId || !scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    log("error", correlationId, "Evento inválido: falta userId o scheduledTime", { scheduledTime: event?.scheduledTime });
+    return { result: "INVALID_EVENT" };
   }
-}
 
-/**
- * Envía Web Push a todas las suscripciones.
- */
-async function sendWebPushToAll(
-  subscriptions: PushSubscription[],
-  payload: Record<string, unknown>,
-  vapidPrivateKey: string,
-): Promise<void> {
-  const promises = subscriptions.map((sub) =>
-    sendWebPushToSubscription(sub, payload, vapidPrivateKey),
-  );
+  const config = loadConfig();
+  const now = new Date();
+  const nowIso = now.toISOString();
 
-  await Promise.allSettled(promises);
-}
+  // AP-12: contexto del usuario
+  const profile = (
+    await docClient.send(new GetCommand({ TableName: TABLE_NAME, Key: { PK: `USER#${userId}`, SK: "PROFILE" } }))
+  ).Item;
+  if (!profile) {
+    log("warn", correlationId, "Usuario sin PROFILE; no se envía nada", { userId });
+    return { result: "NO_PROFILE" };
+  }
+  const timezone = typeof profile.timezone === "string" && profile.timezone ? profile.timezone : "UTC";
+  const slotKey = slotKeyFor(scheduledAt, timezone);
 
-/**
- * Actualiza notifyCount e incrementa lastNotifiedAt del ítem.
- */
-async function updateItemNotifyCount(userId: string, videoId: string): Promise<void> {
-  try {
-    const now = new Date().toISOString();
+  const [candidates, subscriptions] = await Promise.all([queryCandidates(userId), querySubscriptions(userId)]);
+  const plan = planSlot(candidates, now, timezone, config);
 
+  let dormant = 0;
+  for (const c of plan.dormant) {
+    if (await markDormant(userId, c, config.maxReminders, nowIso, correlationId)) dormant++;
+  }
+
+  log("info", correlationId, "Plan de la franja", {
+    userId,
+    slotKey,
+    candidates: candidates.length,
+    eligible: plan.ordered.length,
+    dormant,
+    subscriptions: subscriptions.length,
+  });
+
+  // AP-13: registrar a lo más un envío por franja; el primer candidato que siga PENDING gana.
+  const expiresAt = Math.floor(now.getTime() / 1000) + Number(process.env.NOTIFICATION_TTL_DAYS || 30) * 86400;
+  let chosen: { videoId: string; pushTitle: string; pushBody: string } | undefined;
+
+  for (const candidate of plan.ordered.slice(0, MAX_REGISTER_ATTEMPTS)) {
+    const item = (
+      await docClient.send(
+        new GetCommand({
+          TableName: TABLE_NAME,
+          Key: { PK: `USER#${userId}`, SK: `ITEM#${candidate.videoId}` },
+          ConsistentRead: true,
+        }),
+      )
+    ).Item;
+    if (!item || item.status !== "PENDING") continue;
+
+    const message = buildReminderMessage(item);
+    // Un reprogramado se "consume" al recordarse; si no, conservaría la prioridad para siempre.
+    const consumeSchedule = typeof item.scheduledFor === "string";
+
+    try {
+      await docClient.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: TABLE_NAME,
+                Item: {
+                  PK: `USER#${userId}`,
+                  SK: `NOTIF#${slotKey}`,
+                  entityType: "NOTIFICATION",
+                  slotKey,
+                  videoId: candidate.videoId,
+                  category: item.category ?? null,
+                  title: message.itemTitle,
+                  messageKey: message.messageKey,
+                  messageParams: message.messageParams,
+                  scheduledAt: scheduledAt.toISOString(),
+                  sentAt: nowIso,
+                  // Sin suscripciones solo existe en la bandeja (NTF-01); con ellas se corrige tras el push.
+                  deliveryStatus: subscriptions.length > 0 ? "FAILED" : "IN_APP",
+                  targetCount: subscriptions.length,
+                  successCount: 0,
+                  correlationId,
+                  expiresAt,
+                },
+                ConditionExpression: "attribute_not_exists(PK)",
+              },
+            },
+            {
+              Update: {
+                TableName: TABLE_NAME,
+                Key: { PK: `USER#${userId}`, SK: `ITEM#${candidate.videoId}` },
+                UpdateExpression:
+                  "SET notifyCount = if_not_exists(notifyCount, :zero) + :one, lastNotifiedAt = :now" +
+                  (consumeSchedule ? " REMOVE scheduledFor" : ""),
+                ConditionExpression: "#s = :pending AND #v = :version",
+                ExpressionAttributeNames: { "#s": "status", "#v": "version" },
+                ExpressionAttributeValues: {
+                  ":zero": 0,
+                  ":one": 1,
+                  ":now": nowIso,
+                  ":pending": "PENDING",
+                  ":version": item.version,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      chosen = { videoId: candidate.videoId, pushTitle: message.pushTitle, pushBody: message.pushBody };
+      break;
+    } catch (error: any) {
+      if (error?.name !== "TransactionCanceledException") throw error;
+      const [notifCode, itemCode] = cancellationCodes(error);
+      if (notifCode === "ConditionalCheckFailed") {
+        // El schedule se disparó dos veces para la misma franja: ya hay un envío registrado.
+        log("info", correlationId, "Franja ya registrada; termina sin reenviar", { userId, slotKey });
+        return { result: "ALREADY_SENT", slotKey, dormant };
+      }
+      if (itemCode === "ConditionalCheckFailed") {
+        log("info", correlationId, "El ítem cambió entre la lectura y el registro; siguiente candidato", {
+          videoId: candidate.videoId,
+        });
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!chosen) {
+    log("info", correlationId, "Sin candidatos elegibles en la franja", { userId, slotKey });
+    return { result: "NO_CANDIDATES", slotKey, dormant };
+  }
+
+  // Web Push (solo si hay suscripciones; la bandeja ya tiene el registro)
+  let successCount = 0;
+  if (subscriptions.length > 0) {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || "mailto:soporte@nudgee.app",
+      process.env.VAPID_PUBLIC_KEY!,
+      await getVapidPrivateKey(),
+    );
+    const payload = JSON.stringify({
+      v: 1,
+      type: "REMINDER",
+      slotKey,
+      videoId: chosen.videoId,
+      title: chosen.pushTitle,
+      body: chosen.pushBody,
+      icon: "/icons/icon-192.png",
+      url: `/items/${encodeURIComponent(chosen.videoId)}?slot=${encodeURIComponent(slotKey)}`,
+      correlationId,
+    });
+
+    const results = await Promise.allSettled(
+      subscriptions.map((sub) =>
+        webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload, { TTL: PUSH_TTL_SECONDS }),
+      ),
+    );
+
+    for (const [i, outcome] of results.entries()) {
+      const sub = subscriptions[i];
+      if (outcome.status === "fulfilled") {
+        successCount++;
+        continue;
+      }
+      const statusCode = (outcome.reason as any)?.statusCode;
+      log("warn", correlationId, "Falló el Web Push", { subscriptionId: sub.subscriptionId, statusCode });
+      if (statusCode === 404 || statusCode === 410) {
+        // Suscripción expirada (AP-11, NFR-04)
+        await docClient.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: sub.PK, SK: sub.SK } }));
+        log("info", correlationId, "Suscripción expirada eliminada", { subscriptionId: sub.subscriptionId });
+      }
+    }
+  }
+
+  const deliveryStatus =
+    subscriptions.length === 0
+      ? "IN_APP"
+      : successCount === subscriptions.length
+        ? "SENT"
+        : successCount > 0
+          ? "PARTIAL"
+          : "FAILED";
+
+  if (subscriptions.length > 0) {
     await docClient.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-        UpdateExpression: "SET notifyCount = notifyCount + :inc, lastNotifiedAt = :now",
-        ExpressionAttributeValues: {
-          ":inc": 1,
-          ":now": now,
-        },
+        Key: { PK: `USER#${userId}`, SK: `NOTIF#${slotKey}` },
+        UpdateExpression: "SET deliveryStatus = :status, successCount = :ok",
+        ExpressionAttributeValues: { ":status": deliveryStatus, ":ok": successCount },
       }),
     );
-  } catch (error) {
-    console.error(`Error updating item notifyCount for ${videoId}:`, error);
-    // No falla el dispatcher; es un update no crítico
-  }
-}
-
-/**
- * Handler principal del Dispatcher.
- */
-export const handler = async (event: Record<string, unknown>) => {
-  const slotKey = event.slotKey as string;
-  const userId = event.userId as string;
-  const correlationId = (event.correlationId as string) || randomUUID();
-
-  console.log(
-    JSON.stringify({
-      level: "info",
-      correlationId,
-      slotKey,
-      userId,
-      message: "Dispatcher starting",
-    }),
-  );
-
-  if (!slotKey || !userId) {
-    console.error("Missing slotKey or userId in event");
-    return { statusCode: 400, body: "Missing slotKey or userId" };
   }
 
-  try {
-    // Paso 1: Obtener ítems PENDING para este slot
-    const items = await queryPendingItems(slotKey, userId);
+  log("info", correlationId, "Recordatorio registrado", {
+    userId,
+    slotKey,
+    videoId: chosen.videoId,
+    deliveryStatus,
+    targetCount: subscriptions.length,
+    successCount,
+    delayMs: now.getTime() - scheduledAt.getTime(),
+  });
 
-    console.log(
-      JSON.stringify({
-        level: "info",
-        correlationId,
-        slotKey,
-        itemCount: items.length,
-        message: "Found pending items",
-      }),
-    );
-
-    if (items.length === 0) {
-      return { statusCode: 200, body: JSON.stringify({ processed: 0 }) };
-    }
-
-    // Paso 2: Obtener suscripciones push
-    const subscriptions = await getPushSubscriptions(userId);
-
-    // Paso 3: Obtener VAPID private key
-    const vapidPrivateKey = await getVapidPrivateKey();
-
-    // Paso 4: Para cada ítem
-    for (const item of items) {
-      // Armar y guardar notificación
-      const notification = buildNotification(item, slotKey);
-      await saveNotification(notification);
-
-      // Si hay suscripciones, enviar push
-      if (subscriptions.length > 0) {
-        const isList = isCategoryList(item.category as string);
-        const messageParams = calculateMessageParams(item, isList);
-        const payload = buildPushPayload(item, slotKey, messageParams, correlationId);
-
-        await sendWebPushToAll(subscriptions, payload, vapidPrivateKey);
-      }
-
-      // Actualizar notifyCount del ítem
-      await updateItemNotifyCount(userId, item.videoId as string);
-    }
-
-    console.log(
-      JSON.stringify({
-        level: "info",
-        correlationId,
-        slotKey,
-        processed: items.length,
-        message: "Dispatcher completed successfully",
-      }),
-    );
-
-    return { statusCode: 200, body: JSON.stringify({ processed: items.length }) };
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        level: "error",
-        correlationId,
-        slotKey,
-        userId,
-        message: "Dispatcher error",
-        error: String(error),
-      }),
-    );
-
-    return { statusCode: 500, body: JSON.stringify({ error: "Dispatcher failed" }) };
-  }
+  return {
+    result: "SENT",
+    slotKey,
+    videoId: chosen.videoId,
+    deliveryStatus,
+    targetCount: subscriptions.length,
+    successCount,
+  };
 };
