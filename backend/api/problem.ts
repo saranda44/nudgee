@@ -2,7 +2,7 @@
  * Formato de errores
  */
 
-import { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 
 export type ErrorCode =
   | "INVALID_JSON"

@@ -34,7 +34,11 @@ cd backend && npm run build       # esbuild → dist/
 cd infra && terraform fmt -check && terraform validate
 ```
 
-`npm test` está **roto**: no existen archivos `*.test.ts`. No asumas que hay cobertura de tests.
+```bash
+cd backend && npm test            # node:test sobre **/*.test.ts (Node ≥ 22.18 en local; Lambda corre en Node 20)
+```
+
+Tests solo en `api/router.test.ts` y `api/transitions.test.ts` (E-10…E-17); el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS. Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
 
 ## Convenciones del backend
 

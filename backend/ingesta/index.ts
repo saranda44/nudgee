@@ -1,4 +1,4 @@
-import {
+import type {
   APIGatewayProxyEventV2WithJWTAuthorizer,
   APIGatewayProxyHandlerV2WithJWTAuthorizer,
   APIGatewayProxyStructuredResultV2,

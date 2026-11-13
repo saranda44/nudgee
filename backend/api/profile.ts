@@ -5,7 +5,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { SchedulerClient, CreateScheduleCommand } from "@aws-sdk/client-scheduler";
-import { requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -159,7 +159,7 @@ export const profileRoutes: Route[] = [
     handler: async (ctx: HandlerContext) => {
       const userId = requireUserId(ctx);
 
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
+      const body = readJsonBody(ctx);
       const { timezone, locale } = body as { timezone?: unknown; locale?: unknown };
 
       const errors: Array<{ pointer: string; code: string; message: string }> = [];

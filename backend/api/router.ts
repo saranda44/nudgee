@@ -3,7 +3,7 @@
  * handler registrado, valida el formato de los parámetros de ruta y responde 404 ROUTE_NOT_FOUND si nada coincide.
  */
 
-import { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 export interface HandlerContext {
@@ -69,6 +69,34 @@ export function requireUserId(ctx: HandlerContext): string {
   return ctx.userId;
 }
 
+/**
+ * Body JSON del request como objeto. Body ausente → `{}`; JSON inválido o que no sea
+ * un objeto → 400 INVALID_JSON (lo convierte `dispatch`).
+ */
+export function readJsonBody(ctx: HandlerContext): Record<string, unknown> {
+  const raw = ctx.event.body;
+  if (!raw) return {};
+  const text = ctx.event.isBase64Encoded ? Buffer.from(raw, "base64").toString("utf8") : raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ProblemError({ status: 400, code: "INVALID_JSON", title: "Request body is not valid JSON" });
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ProblemError({ status: 400, code: "INVALID_JSON", title: "Request body must be a JSON object" });
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function safeDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 function withCorrelationId(
   result: APIGatewayProxyStructuredResultV2,
   correlationId: string,
@@ -92,24 +120,30 @@ export function createRouter(routes: Route[]) {
       if (!match) continue;
 
       const params: Record<string, string> = {};
+      const formatIssues: Array<{ pointer: string; code: string; message: string }> = [];
       route.paramNames.forEach((name, index) => {
-        params[name] = decodeURIComponent(match[index + 1]);
+        const decoded = safeDecode(match[index + 1]);
+        if (decoded === null || (PARAM_PATTERNS[name] && !PARAM_PATTERNS[name].test(decoded))) {
+          formatIssues.push({ pointer: `/${name}`, code: "INVALID_FORMAT", message: `${name} has an invalid format` });
+        } else {
+          params[name] = decoded;
+        }
       });
-
-      const formatIssues = Object.entries(params)
-        .filter(([name, value]) => PARAM_PATTERNS[name] && !PARAM_PATTERNS[name].test(value))
-        .map(([name, value]) => ({
-          pointer: `/${name}`,
-          code: "INVALID_FORMAT",
-          message: `${name} "${value}" has an invalid format`,
-        }));
       if (formatIssues.length > 0) {
         return withCorrelationId(buildValidationErrorResponse(formatIssues, correlationId), correlationId);
       }
 
       const userId = route.auth ? getUserId(event) : null;
-      const result = await route.handler({ event, correlationId, userId, params });
-      return withCorrelationId(result, correlationId);
+      try {
+        const result = await route.handler({ event, correlationId, userId, params });
+        return withCorrelationId(result, correlationId);
+      } catch (error) {
+        // Los handlers pueden lanzar ProblemError para cortar con un 4xx (ej. readJsonBody).
+        if (error instanceof ProblemError) {
+          return withCorrelationId(buildProblemResponse(error, correlationId), correlationId);
+        }
+        throw error;
+      }
     }
 
     return withCorrelationId(

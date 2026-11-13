@@ -2,7 +2,7 @@
  * Errores en formato RFC 9457 (application/problem+json) con extensión `code` estable.
  */
 
-import { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 
 export type ErrorCode =
   | "INVALID_JSON"

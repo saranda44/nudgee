@@ -4,7 +4,7 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -59,7 +59,7 @@ export const checklistRoutes: Route[] = [
       const userId = requireUserId(ctx);
       const { videoId } = ctx.params;
 
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
+      const body = readJsonBody(ctx);
 
       // Validar que el body sea un objeto con valores booleanos
       const updates: Record<string, unknown> = {};

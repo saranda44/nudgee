@@ -6,7 +6,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { validateAnalysis, formatValidationErrors, type ValidationIssue } from "../schemas/validators.ts";
-import { requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -169,7 +169,7 @@ export const editItemRoutes: Route[] = [
         );
       }
 
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
+      const body = readJsonBody(ctx);
       const { title, summary, category, details } = body as Record<string, unknown>;
 
       // Obtener el ítem actual
@@ -371,7 +371,7 @@ export const editItemRoutes: Route[] = [
         );
       }
 
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
+      const body = readJsonBody(ctx);
       const { category, title, summary, details } = body as Record<string, unknown>;
 
       // Validar que category y title sean obligatorios
