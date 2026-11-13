@@ -6,48 +6,13 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
+import { CHECKLISTABLE_CATEGORIES, calculateSuggestDone, getChecklistIds } from "./item-dto.ts";
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 type Item = Record<string, unknown>;
-
-// Categorías que permiten checklist
-const CHECKLISTABLE_CATEGORIES = ["RECIPE", "ROUTINE", "TUTORIAL", "MOVIE_SERIES", "PLACE", "BOOK", "MUSIC", "PODCAST"];
-
-/**
- * Extrae todos los IDs existentes en el details del ítem.
- */
-function getExistingIds(item: Item): Set<string> {
-  const ids = new Set<string>();
-  const details = item.details as Record<string, unknown> | null;
-  if (!details) return ids;
-
-  for (const value of Object.values(details)) {
-    if (Array.isArray(value)) {
-      for (const el of value) {
-        if (el && typeof el === "object" && "id" in el) {
-          ids.add(String(el.id));
-        }
-      }
-    }
-  }
-  return ids;
-}
-
-/**
- * Calcula si suggestDone debe ser true (todos los IDs están marcados como true).
- */
-function calculateSuggestDone(checklist: Record<string, unknown>, existingIds: Set<string>): boolean {
-  if (existingIds.size === 0) return false;
-  for (const id of existingIds) {
-    if (checklist[id] !== true) {
-      return false;
-    }
-  }
-  return true;
-}
 
 export const checklistRoutes: Route[] = [
   // E-18: Marcar elementos o entradas
@@ -141,7 +106,7 @@ export const checklistRoutes: Route[] = [
       }
 
       // Validar que todos los IDs a actualizar existan
-      const existingIds = getExistingIds(item);
+      const existingIds = getChecklistIds(item);
       const invalidIds: string[] = [];
 
       for (const id of Object.keys(updates)) {

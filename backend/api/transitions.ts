@@ -12,6 +12,7 @@ import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand, GetCommand } from
 import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildValidationErrorResponse } from "./problem.ts";
+import { itemResponse } from "./item-dto.ts";
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
@@ -202,12 +203,7 @@ async function updateItem(spec: UpdateSpec): Promise<APIGatewayProxyStructuredRe
         ReturnValuesOnConditionCheckFailure: "ALL_OLD",
       }),
     );
-    const item = result.Attributes as Item;
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-      body: JSON.stringify(item),
-    };
+    return itemResponse(result.Attributes as Item);
   } catch (error) {
     rethrowConditionalFailure(error, spec.version, spec.action, spec.allowed);
   }

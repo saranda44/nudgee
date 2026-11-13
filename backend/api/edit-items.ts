@@ -8,6 +8,7 @@ import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { validateAnalysis, formatValidationErrors, type ValidationIssue } from "../schemas/validators.ts";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { itemResponse } from "./item-dto.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -301,17 +302,7 @@ export const editItemRoutes: Route[] = [
           }),
         );
 
-        const updatedItem = result.Attributes as Item;
-        const newVersion = updatedItem.version as number;
-
-        return {
-          statusCode: 200,
-          headers: {
-            "Content-Type": "application/json",
-            ETag: `"${newVersion}"`,
-          },
-          body: JSON.stringify(updatedItem),
-        };
+        return itemResponse(result.Attributes as Item);
       } catch (error: unknown) {
         if ((error as any)?.name === "ConditionalCheckFailedException") {
           // El DocumentClient no convierte el Item de la excepción (llega como AttributeValue)
@@ -495,17 +486,7 @@ export const editItemRoutes: Route[] = [
           }),
         );
 
-        const updatedItem = result.Attributes as Item;
-        const newVersion = updatedItem.version as number;
-
-        return {
-          statusCode: 200,
-          headers: {
-            "Content-Type": "application/json",
-            ETag: `"${newVersion}"`,
-          },
-          body: JSON.stringify(updatedItem),
-        };
+        return itemResponse(result.Attributes as Item);
       } catch (error: unknown) {
         if ((error as any)?.name === "ConditionalCheckFailedException") {
           // El DocumentClient no convierte el Item de la excepción (llega como AttributeValue)
