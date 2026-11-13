@@ -14,6 +14,6 @@ output "function_name" {
 }
 
 output "role_arn" {
-  value       = aws_iam_role.api_role.arn
-  description = "ARN del IAM role de la Lambda"
+  value       = data.aws_iam_role.lab_role.arn
+  description = "ARN del IAM role de la Lambda (LabRole)"
 }
