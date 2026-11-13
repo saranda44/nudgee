@@ -35,6 +35,12 @@ resource "aws_lambda_function" "dispatcher" {
   tags = var.tags
 }
 
+# Grupo donde E-04 crea un schedule por usuario (`nudgee-{userId}`); el nombre está fijo en api/profile.ts
+resource "aws_scheduler_schedule_group" "reminders" {
+  name = "nudgee-reminders"
+  tags = var.tags
+}
+
 # Log Group
 resource "aws_cloudwatch_log_group" "dispatcher" {
   name              = "/aws/lambda/${aws_lambda_function.dispatcher.function_name}"
