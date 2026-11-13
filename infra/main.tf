@@ -184,6 +184,10 @@ module "dispatcher" {
   lambda_timeout        = var.dispatcher_lambda_timeout
   notification_ttl_days = var.notification_ttl_days
 
+  reminder_cooldown_minutes = var.reminder_cooldown_minutes
+  reminder_max_per_item     = var.reminder_max_per_item
+  upcoming_event_days       = var.upcoming_event_days
+
   tags = {
     Project     = var.project_name
     Environment = var.environment

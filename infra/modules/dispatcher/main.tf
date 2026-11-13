@@ -23,10 +23,13 @@ resource "aws_lambda_function" "dispatcher" {
 
   environment {
     variables = {
-      TABLE_NAME            = var.dynamodb_table_name
-      VAPID_PUBLIC_KEY      = var.vapid_public_key
-      NOTIFICATION_TTL_DAYS = var.notification_ttl_days
-      NODE_ENV              = var.environment
+      TABLE_NAME                = var.dynamodb_table_name
+      VAPID_PUBLIC_KEY          = var.vapid_public_key
+      NOTIFICATION_TTL_DAYS     = var.notification_ttl_days
+      REMINDER_COOLDOWN_MINUTES = var.reminder_cooldown_minutes
+      REMINDER_MAX_PER_ITEM     = var.reminder_max_per_item
+      UPCOMING_EVENT_DAYS       = var.upcoming_event_days
+      NODE_ENV                  = var.environment
     }
   }
 
