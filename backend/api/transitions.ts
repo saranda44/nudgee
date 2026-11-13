@@ -1,18 +1,25 @@
 /**
  * E-10 a E-17: Transiciones de estado (done, undo-done, snooze, reschedule,
- * discard, restore, reactivate, delete).
+ * discard, restore, reactivate, delete). RF §4.3–4.5, T-05…T-11.
+ *
+ * Todas son escrituras condicionales sobre `status` + `version` (API-02). Una falla
+ * condicional se traduce a 404 (no existe o expiró), 412 (versión) o 409 (estado).
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { requireUserId, type Route, type HandlerContext } from "./router.ts";
-import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
+import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import type { APIGatewayProxyStructuredResultV2 } from "aws-lambda";
+import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { ProblemError, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 const TABLE_NAME = process.env.TABLE_NAME!;
 
 type Item = Record<string, unknown>;
+type Status = "PROCESSING" | "NEEDS_INPUT" | "PENDING" | "DORMANT" | "DONE" | "DISCARDED";
+
+// ── Configuración ────────────────────────────────────────────────────────────
 
 function parseCsv(value: string | undefined, fallback: string[]): string[] {
   if (!value) return fallback;
@@ -29,9 +36,7 @@ function parseNumber(value: string | undefined, fallback: number): number {
 }
 
 function getSnoozeOptions(): number[] {
-  const fallback: string[] = ["1", "3", "5"];
-  const strs = parseCsv(process.env.SNOOZE_OPTIONS, fallback);
-  return strs.map((s) => Number(s));
+  return parseCsv(process.env.SNOOZE_OPTIONS, ["1", "3", "5"]).map(Number);
 }
 
 function getSnoozeUnit(): "DAY" | "MINUTE" {
@@ -43,685 +48,385 @@ function getDiscardRetentionDays(): number {
 }
 
 /**
- * Valida que la fecha sea válida, no esté en el pasado y no sea más de 365 días en el futuro.
+ * Valida que la fecha sea YYYY-MM-DD real, no esté en el pasado y no pase de 365 días.
+ * Devuelve el error de validación o `null` si es válida.
  */
-function validateScheduleDate(dateStr: string, userTimezone: string): { valid: boolean; error?: string } {
-  // Parse YYYY-MM-DD
+function validateScheduleDate(dateStr: string, userTimezone: string): { code: string; message: string } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return { valid: false, error: "must be in YYYY-MM-DD format" };
+    return { code: "INVALID_DATE", message: "must be in YYYY-MM-DD format" };
   }
 
   const [year, month, day] = dateStr.split("-").map(Number);
   const date = new Date(year, month - 1, day);
-
-  // Validar que sea una fecha válida
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return { valid: false, error: "must be a valid date" };
+    return { code: "INVALID_DATE", message: "must be a valid date" };
   }
 
-  // Obtener "hoy" en la zona del usuario
-  const now = new Date();
-  const todayInUserTz = new Date(now.toLocaleString("en-US", { timeZone: userTimezone }));
+  // "Hoy" en la zona del usuario
+  const todayInUserTz = new Date(new Date().toLocaleString("en-US", { timeZone: userTimezone }));
   todayInUserTz.setHours(0, 0, 0, 0);
-
-  // Validar que no esté en el pasado
   if (date < todayInUserTz) {
-    return { valid: false, error: "must be today or later" };
+    return { code: "DATE_IN_PAST", message: "must be today or later" };
   }
 
-  // Validar que no sea más de 365 días en el futuro
   const maxDate = new Date(todayInUserTz);
   maxDate.setDate(maxDate.getDate() + 365);
   if (date > maxDate) {
-    return { valid: false, error: "must be at most 365 days in the future" };
+    return { code: "INVALID_DATE", message: "must be at most 365 days in the future" };
   }
-
-  return { valid: true };
+  return null;
 }
 
+// ── Helpers de transición ────────────────────────────────────────────────────
+
+function itemKey(userId: string, videoId: string) {
+  return { PK: `USER#${userId}`, SK: `ITEM#${videoId}` };
+}
+
+/** GSI1 de pendientes: `{savedAt}#{videoId}`, del más viejo al más nuevo (US-39, D-08). */
+function pendingIndexValues(userId: string, item: Item, videoId: string) {
+  return { ":gsi1pk": `USER#${userId}`, ":gsi1sk": `${item.savedAt}#${videoId}` };
+}
+const SET_PENDING_INDEX = ["GSI1PK = :gsi1pk", "GSI1SK = :gsi1sk"];
+const REMOVE_PENDING_INDEX = ["GSI1PK", "GSI1SK"];
+
+/** Lee `If-Match`: ausente → 428; no numérico → 412 (nunca puede coincidir). */
+function readIfMatch(ctx: HandlerContext): number {
+  const header = ctx.event.headers?.["if-match"];
+  if (!header) {
+    throw new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" });
+  }
+  const raw = header.replace(/"/g, "").trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new ProblemError({ status: 412, code: "VERSION_MISMATCH", title: "Item was modified" });
+  }
+  return Number(raw);
+}
+
+function isExpired(item: Item): boolean {
+  return typeof item.expiresAt === "number" && item.expiresAt <= Math.floor(Date.now() / 1000);
+}
+
+/** Lanza 404/412/409 si el ítem no permite la acción con esa versión (RF §4.4). */
+function assertTransition(
+  item: Item | undefined,
+  version: number,
+  action: string,
+  allowed: Status[],
+): asserts item is Item {
+  if (!item || isExpired(item)) {
+    throw new ProblemError({ status: 404, code: "ITEM_NOT_FOUND", title: "Item not found" });
+  }
+  if (item.version !== version) {
+    throw new ProblemError({
+      status: 412,
+      code: "VERSION_MISMATCH",
+      title: "Item was modified",
+      extensions: { currentVersion: item.version },
+    });
+  }
+  if (!allowed.includes(item.status as Status)) {
+    throw new ProblemError({
+      status: 409,
+      code: "INVALID_STATE_TRANSITION",
+      title: "Action not allowed in the current status",
+      extensions: { action, currentStatus: item.status, allowedStatuses: allowed },
+    });
+  }
+}
+
+/** Traduce ConditionalCheckFailedException (con `Item` = ALL_OLD) a 404/412/409. */
+function rethrowConditionalFailure(error: unknown, version: number, action: string, allowed: Status[]): never {
+  if ((error as { name?: string })?.name !== "ConditionalCheckFailedException") throw error;
+  const oldItem = (error as { Item?: Item }).Item;
+  assertTransition(oldItem, version, action, allowed);
+  // El ítem actual sí permite la acción: alguien lo cambió entre la condición y la lectura.
+  throw new ProblemError({ status: 412, code: "VERSION_MISMATCH", title: "Item was modified" });
+}
+
+/** Condición común: estado permitido + versión esperada. */
+function transitionCondition(allowed: Status[], version: number) {
+  const placeholders = allowed.map((_, i) => `:from${i}`);
+  const values: Record<string, unknown> = { ":v": version };
+  allowed.forEach((status, i) => (values[placeholders[i]] = status));
+  return { expression: `#s IN (${placeholders.join(", ")}) AND #v = :v`, values };
+}
+
+async function getItem(userId: string, videoId: string): Promise<Item | undefined> {
+  const result = await docClient.send(
+    new GetCommand({ TableName: TABLE_NAME, Key: itemKey(userId, videoId), ConsistentRead: true }),
+  );
+  return result.Item;
+}
+
+interface UpdateSpec {
+  ctx: HandlerContext;
+  version: number;
+  action: string;
+  allowed: Status[];
+  now: Date;
+  /** Asignaciones extra (`statusUpdatedAt` y `version` se agregan solas). */
+  set: string[];
+  remove?: string[];
+  values: Record<string, unknown>;
+}
+
+/** UpdateItem condicional que sube `version` y responde 200 con el ítem y su ETag. */
+async function updateItem(spec: UpdateSpec): Promise<APIGatewayProxyStructuredResultV2> {
+  const userId = requireUserId(spec.ctx);
+  const condition = transitionCondition(spec.allowed, spec.version);
+  const set = [...spec.set, "statusUpdatedAt = :now", "#v = :newVersion"];
+  const remove = spec.remove ?? [];
+
+  try {
+    const result = await docClient.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: itemKey(userId, spec.ctx.params.videoId),
+        UpdateExpression: `SET ${set.join(", ")}` + (remove.length ? ` REMOVE ${remove.join(", ")}` : ""),
+        ConditionExpression: condition.expression,
+        ExpressionAttributeNames: { "#s": "status", "#v": "version" },
+        ExpressionAttributeValues: {
+          ...spec.values,
+          ...condition.values,
+          ":newVersion": spec.version + 1,
+          ":now": spec.now.toISOString(),
+        },
+        ReturnValues: "ALL_NEW",
+        ReturnValuesOnConditionCheckFailure: "ALL_OLD",
+      }),
+    );
+    const item = result.Attributes as Item;
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
+      body: JSON.stringify(item),
+    };
+  } catch (error) {
+    rethrowConditionalFailure(error, spec.version, spec.action, spec.allowed);
+  }
+}
+
+// ── Rutas ────────────────────────────────────────────────────────────────────
+
 export const transitionRoutes: Route[] = [
-  // E-10: Marcar hecho (PENDING → DONE)
+  // E-10 / T-05: Marcar hecho (PENDING → DONE)
   {
     method: "POST",
     path: "/v1/items/:videoId/done",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
-      const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
-
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const now = new Date().toISOString();
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression: "SET #s = :done, statusUpdatedAt = :now, #v = :newVersion REMOVE GSI1PK, GSI1SK",
-            ConditionExpression: "#s = :pending AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":pending": "PENDING",
-              ":done": "DONE",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":now": now,
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "done", currentStatus: oldItem?.status, allowedStatuses: ["PENDING"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
-    },
+    handler: async (ctx) =>
+      updateItem({
+        ctx,
+        version: readIfMatch(ctx),
+        action: "done",
+        allowed: ["PENDING"],
+        now: new Date(),
+        set: ["#s = :to"],
+        remove: REMOVE_PENDING_INDEX,
+        values: { ":to": "DONE" },
+      }),
   },
 
-  // E-11: Deshacer hecho (DONE → PENDING)
+  // E-11 / T-06: Deshacer hecho (DONE → PENDING). Lee el ítem para recuperar savedAt.
   {
     method: "POST",
     path: "/v1/items/:videoId/undo-done",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
+    handler: async (ctx) => {
       const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
+      const version = readIfMatch(ctx);
+      const allowed: Status[] = ["DONE"];
+      const item = await getItem(userId, ctx.params.videoId);
+      assertTransition(item, version, "undo-done", allowed);
 
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const now = new Date().toISOString();
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression:
-              "SET #s = :pending, statusUpdatedAt = :now, #v = :newVersion, GSI1PK = :gsi1pk, GSI1SK = :gsi1sk",
-            ConditionExpression: "#s = :done AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":done": "DONE",
-              ":pending": "PENDING",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":now": now,
-              ":gsi1pk": `USER#${userId}`,
-              ":gsi1sk": `:${now}#${videoId}`, // savedAt#videoId
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "undo-done", currentStatus: oldItem?.status, allowedStatuses: ["DONE"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      return updateItem({
+        ctx,
+        version,
+        action: "undo-done",
+        allowed,
+        now: new Date(),
+        set: ["#s = :to", ...SET_PENDING_INDEX],
+        values: { ":to": "PENDING", ...pendingIndexValues(userId, item, ctx.params.videoId) },
+      });
     },
   },
 
-  // E-12: Posponer (PENDING + snoozeUntil)
+  // E-12: Posponer (PENDING + snoozeUntil; borra scheduledFor, RF §4.5)
   {
     method: "POST",
     path: "/v1/items/:videoId/snooze",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
-      const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
+    handler: async (ctx) => {
+      const version = readIfMatch(ctx);
+      const { days } = readJsonBody(ctx);
 
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
-      const { days } = body as { days?: unknown };
-
-      const snoozeOptions: number[] = getSnoozeOptions();
-      if (typeof days !== "number" || !snoozeOptions.includes(days as number)) {
+      const snoozeOptions = getSnoozeOptions();
+      if (typeof days !== "number" || !snoozeOptions.includes(days)) {
         return buildValidationErrorResponse(
           [{ pointer: "/days", code: "ENUM", message: `must be one of ${snoozeOptions.join(", ")}` }],
           ctx.correlationId,
         );
       }
 
-      const snoozeUnit = getSnoozeUnit();
       const now = new Date();
       const snoozeUntil = new Date(now);
-      if (snoozeUnit === "DAY") {
+      if (getSnoozeUnit() === "DAY") {
         snoozeUntil.setDate(snoozeUntil.getDate() + days);
       } else {
         snoozeUntil.setMinutes(snoozeUntil.getMinutes() + days);
       }
 
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression:
-              "SET snoozeUntil = :snoozeUntil, snoozeCount = snoozeCount + :inc, statusUpdatedAt = :now, #v = :newVersion REMOVE scheduledFor",
-            ConditionExpression: "#s = :pending AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":pending": "PENDING",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":snoozeUntil": snoozeUntil.toISOString(),
-              ":now": now.toISOString(),
-              ":inc": 1,
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "snooze", currentStatus: oldItem?.status, allowedStatuses: ["PENDING"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      return updateItem({
+        ctx,
+        version,
+        action: "snooze",
+        allowed: ["PENDING"],
+        now,
+        set: ["snoozeUntil = :snoozeUntil", "snoozeCount = if_not_exists(snoozeCount, :zero) + :inc"],
+        remove: ["scheduledFor"],
+        values: { ":snoozeUntil": snoozeUntil.toISOString(), ":zero": 0, ":inc": 1 },
+      });
     },
   },
 
-  // E-13: Reprogramar (PENDING + scheduledFor)
+  // E-13: Reprogramar (PENDING + scheduledFor; borra snoozeUntil, RF §4.5)
   {
     method: "POST",
     path: "/v1/items/:videoId/reschedule",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
-      const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
+    handler: async (ctx) => {
+      const version = readIfMatch(ctx);
+      const { date } = readJsonBody(ctx);
 
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
+      if (typeof date !== "string") {
+        return buildValidationErrorResponse(
+          [{ pointer: "/date", code: "INVALID_TYPE", message: "must be a string" }],
           ctx.correlationId,
         );
       }
 
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
-      const { date } = body as { date?: unknown };
-
-      if (typeof date !== "string") {
-        return buildValidationErrorResponse([{ pointer: "/date", code: "INVALID_TYPE", message: "must be a string" }], ctx.correlationId);
-      }
-
       // TODO: obtener timezone del usuario desde el perfil
-      const userTimezone = "America/Mexico_City";
-      const validation = validateScheduleDate(date, userTimezone);
-      if (!validation.valid) {
-        const errorCode = validation.error?.includes("past") ? "DATE_IN_PAST" : "INVALID_DATE";
-        return buildValidationErrorResponse([{ pointer: "/date", code: errorCode, message: validation.error! }], ctx.correlationId);
+      const dateError = validateScheduleDate(date, "America/Mexico_City");
+      if (dateError) {
+        return buildValidationErrorResponse([{ pointer: "/date", ...dateError }], ctx.correlationId);
       }
 
-      const now = new Date().toISOString();
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression: "SET scheduledFor = :date, statusUpdatedAt = :now, #v = :newVersion REMOVE snoozeUntil",
-            ConditionExpression: "#s = :pending AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":pending": "PENDING",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":date": date,
-              ":now": now,
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "reschedule", currentStatus: oldItem?.status, allowedStatuses: ["PENDING"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      return updateItem({
+        ctx,
+        version,
+        action: "reschedule",
+        allowed: ["PENDING"],
+        now: new Date(),
+        set: ["scheduledFor = :date"],
+        remove: ["snoozeUntil"],
+        values: { ":date": date },
+      });
     },
   },
 
-  // E-14: Descartar (PENDING|NEEDS_INPUT|DORMANT → DISCARDED)
+  // E-14 / T-09: Descartar (PENDING|NEEDS_INPUT|DORMANT → DISCARDED), TTL en expiresAt
   {
     method: "POST",
     path: "/v1/items/:videoId/discard",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
-      const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
-
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
+    handler: async (ctx) => {
       const now = new Date();
-      const retentionDays = getDiscardRetentionDays();
-      const expiresAt = Math.floor(now.getTime() / 1000) + retentionDays * 24 * 60 * 60;
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression: "SET #s = :discarded, expiresAt = :expiresAt, statusUpdatedAt = :now, #v = :newVersion REMOVE GSI1PK, GSI1SK",
-            ConditionExpression: "#s IN (:pending, :needsInput, :dormant) AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":pending": "PENDING",
-              ":needsInput": "NEEDS_INPUT",
-              ":dormant": "DORMANT",
-              ":discarded": "DISCARDED",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":expiresAt": expiresAt,
-              ":now": now.toISOString(),
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "discard", currentStatus: oldItem?.status, allowedStatuses: ["PENDING", "NEEDS_INPUT", "DORMANT"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      const expiresAt = Math.floor(now.getTime() / 1000) + getDiscardRetentionDays() * 24 * 60 * 60;
+      return updateItem({
+        ctx,
+        version: readIfMatch(ctx),
+        action: "discard",
+        allowed: ["PENDING", "NEEDS_INPUT", "DORMANT"],
+        now,
+        set: ["#s = :to", "expiresAt = :expiresAt"],
+        remove: REMOVE_PENDING_INDEX,
+        values: { ":to": "DISCARDED", ":expiresAt": expiresAt },
+      });
     },
   },
 
-  // E-15: Restaurar (DISCARDED → PENDING|NEEDS_INPUT)
+  // E-15 / T-10: Restaurar (DISCARDED → PENDING, o NEEDS_INPUT si nunca tuvo datos).
+  // Lee el ítem para decidir el destino según dataSource y recuperar savedAt.
   {
     method: "POST",
     path: "/v1/items/:videoId/restore",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
+    handler: async (ctx) => {
       const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
+      const version = readIfMatch(ctx);
+      const allowed: Status[] = ["DISCARDED"];
+      const item = await getItem(userId, ctx.params.videoId);
+      assertTransition(item, version, "restore", allowed);
 
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const now = new Date();
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression:
-              "SET #s = if_not_exists(dataSource, :null) = :null ? :needsInput : :pending, notifyCount = :zero, snoozeCount = :zero, statusUpdatedAt = :now, #v = :newVersion, GSI1PK = :gsi1pk, GSI1SK = :gsi1sk REMOVE expiresAt",
-            ConditionExpression: "#s = :discarded AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":discarded": "DISCARDED",
-              ":null": null,
-              ":needsInput": "NEEDS_INPUT",
-              ":pending": "PENDING",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":zero": 0,
-              ":now": now.toISOString(),
-              ":gsi1pk": `USER#${userId}`,
-              ":gsi1sk": `${now.toISOString()}#${videoId}`,
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "restore", currentStatus: oldItem?.status, allowedStatuses: ["DISCARDED"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      const toPending = Boolean(item.dataSource);
+      return updateItem({
+        ctx,
+        version,
+        action: "restore",
+        allowed,
+        now: new Date(),
+        set: ["#s = :to", "notifyCount = :zero", "snoozeCount = :zero", ...(toPending ? SET_PENDING_INDEX : [])],
+        remove: ["expiresAt"],
+        values: {
+          ":to": toPending ? "PENDING" : "NEEDS_INPUT",
+          ":zero": 0,
+          ...(toPending ? pendingIndexValues(userId, item, ctx.params.videoId) : {}),
+        },
+      });
     },
   },
 
-  // E-16: Reactivar (DORMANT → PENDING)
+  // E-16 / T-08: Reactivar (DORMANT → PENDING). Lee el ítem para recuperar savedAt.
   {
     method: "POST",
     path: "/v1/items/:videoId/reactivate",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
+    handler: async (ctx) => {
       const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
+      const version = readIfMatch(ctx);
+      const allowed: Status[] = ["DORMANT"];
+      const item = await getItem(userId, ctx.params.videoId);
+      assertTransition(item, version, "reactivate", allowed);
 
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
-      const now = new Date();
-
-      try {
-        const result = await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression: "SET #s = :pending, notifyCount = :zero, statusUpdatedAt = :now, #v = :newVersion, GSI1PK = :gsi1pk, GSI1SK = :gsi1sk",
-            ConditionExpression: "#s = :dormant AND #v = :v",
-            ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: {
-              ":dormant": "DORMANT",
-              ":pending": "PENDING",
-              ":v": version,
-              ":newVersion": version + 1,
-              ":zero": 0,
-              ":now": now.toISOString(),
-              ":gsi1pk": `USER#${userId}`,
-              ":gsi1sk": `${now.toISOString()}#${videoId}`,
-            },
-            ReturnValues: "ALL_NEW",
-            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
-          }),
-        );
-
-        const item = result.Attributes as Item;
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", ETag: `"${item.version}"` },
-          body: JSON.stringify(item),
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "reactivate", currentStatus: oldItem?.status, allowedStatuses: ["DORMANT"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
-      }
+      return updateItem({
+        ctx,
+        version,
+        action: "reactivate",
+        allowed,
+        now: new Date(),
+        set: ["#s = :to", "notifyCount = :zero", ...SET_PENDING_INDEX],
+        values: { ":to": "PENDING", ":zero": 0, ...pendingIndexValues(userId, item, ctx.params.videoId) },
+      });
     },
   },
 
-  // E-17: Eliminar definitivo (DISCARDED → deleted)
+  // E-17 / T-11: Eliminar definitivo (DISCARDED → eliminado)
   {
     method: "DELETE",
     path: "/v1/items/:videoId",
     auth: true,
-    handler: async (ctx: HandlerContext) => {
+    handler: async (ctx) => {
       const userId = requireUserId(ctx);
-      const { videoId } = ctx.params;
-      const ifMatch = ctx.event.headers?.["if-match"];
-
-      if (!ifMatch) {
-        return buildProblemResponse(
-          new ProblemError({ status: 428, code: "PRECONDITION_REQUIRED", title: "If-Match header is required" }),
-          ctx.correlationId,
-        );
-      }
-
-      const version = Number(ifMatch.replace(/"/g, ""));
+      const version = readIfMatch(ctx);
+      const allowed: Status[] = ["DISCARDED"];
+      const condition = transitionCondition(allowed, version);
 
       try {
         await docClient.send(
           new DeleteCommand({
             TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            ConditionExpression: "#s = :discarded AND #v = :v",
+            Key: itemKey(userId, ctx.params.videoId),
+            ConditionExpression: condition.expression,
             ExpressionAttributeNames: { "#s": "status", "#v": "version" },
-            ExpressionAttributeValues: { ":discarded": "DISCARDED", ":v": version },
+            ExpressionAttributeValues: condition.values,
+            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
           }),
         );
-
-        return {
-          statusCode: 204,
-          headers: {},
-          body: "",
-        };
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          const oldItem = (error as any).Item as Item | undefined;
-          if (!oldItem) {
-            // El item no existe
-            return { statusCode: 404, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: "ITEM_NOT_FOUND" }) };
-          }
-          if (oldItem?.version !== version) {
-            return buildProblemResponse(
-              new ProblemError({
-                status: 412,
-                code: "VERSION_MISMATCH",
-                title: "Item was modified",
-                extensions: { currentVersion: oldItem?.version },
-              }),
-              ctx.correlationId,
-            );
-          }
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: { action: "delete", currentStatus: oldItem?.status, allowedStatuses: ["DISCARDED"] },
-            }),
-            ctx.correlationId,
-          );
-        }
-        throw error;
+      } catch (error) {
+        rethrowConditionalFailure(error, version, "delete", allowed);
       }
+      return { statusCode: 204, headers: {}, body: "" };
     },
   },
 ];

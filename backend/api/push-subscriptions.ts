@@ -6,7 +6,7 @@
 import { createHash } from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { requireUserId, type Route, type HandlerContext } from "./router.ts";
+import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
 const ddbClient = new DynamoDBClient({});
@@ -60,7 +60,7 @@ export const pushSubscriptionRoutes: Route[] = [
     handler: async (ctx: HandlerContext) => {
       const userId = requireUserId(ctx);
 
-      const body = ctx.event.body ? JSON.parse(ctx.event.body) : {};
+      const body = readJsonBody(ctx);
       const { endpoint, expirationTime, keys, platform } = body as Record<string, unknown>;
 
       // Validar campos obligatorios

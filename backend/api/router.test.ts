@@ -67,7 +67,6 @@ describe("router: coincidencia de rutas", () => {
 
   it(
     "param con escape % inválido → 400, no 500",
-    { todo: "bug: decodeURIComponent lanza URIError y el router no lo atrapa" },
     async () => {
       const res = await dispatch(makeEvent({ method: "GET", path: "/v1/things/%E0" }), TEST_CORRELATION_ID);
       assert.equal(res.statusCode, 400);

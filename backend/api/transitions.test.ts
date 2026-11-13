@@ -3,7 +3,6 @@
  *
  * DynamoDB se reemplaza por una "tabla falsa" de un ítem que evalúa la ConditionExpression
  * que el handler envía: así la matriz acción × estado sale del código real, no de suposiciones.
- * Los tests marcados `todo` describen el contrato correcto y hoy fallan por bugs conocidos.
  */
 
 import { describe, it, before, afterEach, mock } from "node:test";
@@ -56,20 +55,20 @@ interface Action {
   allowed: Status[];
   body?: unknown;
   okStatus: number;
+  /** Lee el ítem (GetItem) antes de escribir: necesita savedAt/dataSource. */
+  reads?: boolean;
 }
 
 const ACTIONS: Action[] = [
   { id: "E-10", action: "done", method: "POST", suffix: "/done", allowed: ["PENDING"], okStatus: 200 },
-  { id: "E-11", action: "undo-done", method: "POST", suffix: "/undo-done", allowed: ["DONE"], okStatus: 200 },
+  { id: "E-11", action: "undo-done", method: "POST", suffix: "/undo-done", allowed: ["DONE"], okStatus: 200, reads: true },
   { id: "E-12", action: "snooze", method: "POST", suffix: "/snooze", allowed: ["PENDING"], body: { days: 3 }, okStatus: 200 },
   { id: "E-13", action: "reschedule", method: "POST", suffix: "/reschedule", allowed: ["PENDING"], body: { date: "2026-06-16" }, okStatus: 200 },
   { id: "E-14", action: "discard", method: "POST", suffix: "/discard", allowed: ["PENDING", "NEEDS_INPUT", "DORMANT"], okStatus: 200 },
-  { id: "E-15", action: "restore", method: "POST", suffix: "/restore", allowed: ["DISCARDED"], okStatus: 200 },
-  { id: "E-16", action: "reactivate", method: "POST", suffix: "/reactivate", allowed: ["DORMANT"], okStatus: 200 },
+  { id: "E-15", action: "restore", method: "POST", suffix: "/restore", allowed: ["DISCARDED"], okStatus: 200, reads: true },
+  { id: "E-16", action: "reactivate", method: "POST", suffix: "/reactivate", allowed: ["DORMANT"], okStatus: 200, reads: true },
   { id: "E-17", action: "delete", method: "DELETE", suffix: "", allowed: ["DISCARDED"], okStatus: 204 },
 ];
-
-const E17_TODO = "bug: E-17 no pide ReturnValuesOnConditionCheckFailure, toda falla condicional responde 404";
 
 /** Estados que la ConditionExpression enviada acepta (valores de `#s = :x` / `#s IN (...)`). */
 function conditionStatuses(input: CommandInput): string[] {
@@ -78,12 +77,23 @@ function conditionStatuses(input: CommandInput): string[] {
   return placeholders.map((p) => input.ExpressionAttributeValues[p]);
 }
 
+const SAVED_AT = "2026-06-01T10:00:00.000Z";
+
+interface FakeItem {
+  status: Status;
+  version: number;
+  dataSource?: string | null;
+  expiresAt?: number;
+}
+
 /**
  * Tabla falsa con un solo ítem (o vacía). Igual que DynamoDB: la falla condicional solo
  * incluye `Item` si el comando pidió `ReturnValuesOnConditionCheckFailure: "ALL_OLD"`.
  */
-function fakeTable(item?: { status: Status; version: number }) {
-  return mockDdb((input) => {
+function fakeTable(seed?: FakeItem) {
+  const item = seed && { savedAt: SAVED_AT, dataSource: "AI", ...seed };
+  return mockDdb((input, commandName) => {
+    if (commandName === "GetCommand") return { Item: item };
     const ok =
       item !== undefined &&
       conditionStatuses(input).includes(item.status) &&
@@ -119,7 +129,7 @@ for (const a of ACTIONS) {
       mock.timers.enable({ apis: ["Date"], now: NOW });
       const ddb = fakeTable({ status: a.allowed[0], version: 3 });
       await call(a, { ifMatch: '"3"' });
-      assert.deepEqual(conditionStatuses(ddb.inputs[0]).sort(), [...a.allowed].sort());
+      assert.deepEqual(conditionStatuses(ddb.inputs.at(-1)!).sort(), [...a.allowed].sort());
     });
 
     for (const from of a.allowed) {
@@ -129,8 +139,8 @@ for (const a of ACTIONS) {
         const res = await call(a, { ifMatch: '"3"' });
 
         assert.equal(res.statusCode, a.okStatus, `body: ${res.body}`);
-        assert.equal(ddb.callCount, 1);
-        const input = ddb.inputs[0];
+        assert.equal(ddb.callCount, a.reads ? 2 : 1);
+        const input = ddb.inputs.at(-1)!;
         assert.equal(input.TableName, "test-table");
         assert.deepEqual(input.Key, { PK: `USER#${TEST_SUB}`, SK: `ITEM#${TEST_VIDEO_ID}` });
         assert.equal(input.ExpressionAttributeValues[":v"], 3);
@@ -146,7 +156,6 @@ for (const a of ACTIONS) {
     for (const from of ALL_STATES.filter((s) => !a.allowed.includes(s))) {
       it(
         `desde ${from} → 409 INVALID_STATE_TRANSITION`,
-        a.action === "delete" ? { todo: E17_TODO } : {},
         async () => {
           mock.timers.enable({ apis: ["Date"], now: NOW });
           fakeTable({ status: from, version: 3 });
@@ -169,7 +178,6 @@ for (const a of ACTIONS) {
 
     it(
       "If-Match con otra versión → 412 VERSION_MISMATCH con currentVersion",
-      a.action === "delete" ? { todo: E17_TODO } : {},
       async () => {
         mock.timers.enable({ apis: ["Date"], now: NOW });
         fakeTable({ status: a.allowed[0], version: 5 });
@@ -181,7 +189,6 @@ for (const a of ACTIONS) {
 
     it(
       "ítem inexistente → 404 ITEM_NOT_FOUND",
-      { todo: "bug: sin Item en la falla condicional responde 412 (o 404 sin problem+json en E-17)" },
       async () => {
         mock.timers.enable({ apis: ["Date"], now: NOW });
         fakeTable(undefined);
@@ -192,7 +199,6 @@ for (const a of ACTIONS) {
 
     it(
       'If-Match no numérico ("abc") → 4xx sin escribir en DynamoDB',
-      { todo: "bug: Number('abc') = NaN se envía como :v" },
       async () => {
         mock.timers.enable({ apis: ["Date"], now: NOW });
         const ddb = fakeTable({ status: a.allowed[0], version: 3 });
@@ -222,7 +228,7 @@ async function sentInput(a: Action, body?: unknown) {
   mock.timers.enable({ apis: ["Date"], now: NOW });
   const ddb = fakeTable({ status: a.allowed[0], version: 3 });
   const res = await call(a, { ifMatch: '"3"', body });
-  return { res, input: ddb.inputs[0], ddb };
+  return { res, input: ddb.inputs.at(-1)!, ddb };
 }
 
 describe("E-10 / E-14: salen del índice de pendientes", () => {
@@ -236,27 +242,20 @@ describe("E-10 / E-14: salen del índice de pendientes", () => {
 
 describe("E-11 / E-15 / E-16: regresan al índice de pendientes", () => {
   for (const a of [UNDO, RESTORE, REACTIVATE]) {
-    it(`${a.id} escribe GSI1PK = USER#sub`, async () => {
+    it(`${a.id} escribe GSI1PK = USER#sub y GSI1SK = savedAt#videoId (orden original, US-39)`, async () => {
       const { input } = await sentInput(a);
       assert.equal(input.ExpressionAttributeValues[":gsi1pk"], `USER#${TEST_SUB}`);
+      assert.equal(input.ExpressionAttributeValues[":gsi1sk"], `${SAVED_AT}#${TEST_VIDEO_ID}`);
+      assert.equal(input.ExpressionAttributeValues[":to"], "PENDING");
     });
   }
-
-  it(
-    "E-11 GSI1SK con formato <fecha ISO>#<videoId>",
-    { todo: "bug: E-11 antepone ':' al GSI1SK" },
-    async () => {
-      const { input } = await sentInput(UNDO);
-      assert.match(input.ExpressionAttributeValues[":gsi1sk"], /^\d{4}-\d{2}-\d{2}T[^#]+#dQw4w9WgXcQ$/);
-    },
-  );
 });
 
 describe("E-12 snooze (RF §4.5)", () => {
   it("suma días a snoozeUntil, incrementa snoozeCount y borra scheduledFor", async () => {
     const { input } = await sentInput(SNOOZE, { days: 3 });
     assert.equal(input.ExpressionAttributeValues[":snoozeUntil"], "2026-06-18T18:00:00.000Z");
-    assert.match(input.UpdateExpression, /snoozeCount = snoozeCount \+ :inc/);
+    assert.match(input.UpdateExpression, /snoozeCount = if_not_exists\(snoozeCount, :zero\) \+ :inc/);
     assert.match(input.UpdateExpression, /REMOVE scheduledFor/);
   });
 
@@ -281,7 +280,7 @@ describe("E-12 snooze (RF §4.5)", () => {
     assert.equal(res.statusCode, 200);
   });
 
-  it("body con JSON inválido → 400 INVALID_JSON", { todo: "bug: JSON.parse lanza y termina en 500" }, async () => {
+  it("body con JSON inválido → 400 INVALID_JSON", async () => {
     fakeTable({ status: "PENDING", version: 3 });
     const res = await call(SNOOZE, { ifMatch: '"3"', rawBody: "{no-json" });
     assertProblem(res, 400, "INVALID_JSON");
@@ -318,7 +317,6 @@ describe("E-13 reschedule (RF §4.5)", () => {
 
   it(
     "fecha pasada → código DATE_IN_PAST (contrato E-13)",
-    { todo: "bug: busca 'past' en el mensaje 'must be today or later' y responde INVALID_DATE" },
     async () => {
       const { res } = await sentInput(RESCHEDULE, { date: "2026-06-14" });
       assert.equal(parseBody(res).errors[0].code, "DATE_IN_PAST");
@@ -348,14 +346,29 @@ describe("E-15 restore (T-10)", () => {
     assert.match(input.UpdateExpression, /REMOVE expiresAt/);
   });
 
-  it(
-    "UpdateExpression sin operador ternario (no existe en DynamoDB)",
-    { todo: "bug: 'SET #s = if_not_exists(...) = :null ? … : …' es inválido; DynamoDB rechazará el comando" },
-    async () => {
-      const { input } = await sentInput(RESTORE);
-      assert.doesNotMatch(input.UpdateExpression, /\?/);
-    },
-  );
+  it("UpdateExpression sin operador ternario (no existe en DynamoDB)", async () => {
+    const { input } = await sentInput(RESTORE);
+    assert.doesNotMatch(input.UpdateExpression, /\?/);
+  });
+
+  it("sin dataSource (nunca tuvo datos) → NEEDS_INPUT y no entra al índice de pendientes", async () => {
+    mock.timers.enable({ apis: ["Date"], now: NOW });
+    const ddb = fakeTable({ status: "DISCARDED", version: 3, dataSource: null });
+    const res = await call(RESTORE, { ifMatch: '"3"' });
+    assert.equal(res.statusCode, 200);
+    const input = ddb.inputs.at(-1)!;
+    assert.equal(input.ExpressionAttributeValues[":to"], "NEEDS_INPUT");
+    assert.doesNotMatch(input.UpdateExpression, /GSI1/);
+    assert.equal(input.ExpressionAttributeValues[":gsi1pk"], undefined);
+  });
+
+  it("descartado con expiresAt vencido (TTL pendiente) → 404 ITEM_NOT_FOUND", async () => {
+    mock.timers.enable({ apis: ["Date"], now: NOW });
+    const ddb = fakeTable({ status: "DISCARDED", version: 3, expiresAt: NOW.getTime() / 1000 - 1 });
+    const res = await call(RESTORE, { ifMatch: '"3"' });
+    assertProblem(res, 404, "ITEM_NOT_FOUND");
+    assert.equal(ddb.callCount, 1, "no debe intentar escribir");
+  });
 });
 
 describe("E-16 reactivate", () => {
