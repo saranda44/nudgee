@@ -20,6 +20,8 @@ interface LibraryState {
   reload: () => void;
   /** Inserta o reemplaza con la versión que devolvió la API. */
   upsert: (item: Item) => void;
+  /** Mezcla campos sobre la versión más reciente en memoria (sin carreras entre clics). */
+  patch: (videoId: string, change: (current: Item) => Partial<Item>) => void;
   remove: (videoId: string) => void;
   get: (videoId: string) => Item | undefined;
 }
@@ -73,6 +75,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     },
     [config],
   );
+
+  const patch = useCallback((videoId: string, change: (current: Item) => Partial<Item>) => {
+    setById((prev) => {
+      const current = prev.get(videoId);
+      return current ? new Map(prev).set(videoId, { ...current, ...change(current) }) : prev;
+    });
+  }, []);
 
   const remove = useCallback((videoId: string) => {
     setById((prev) => {
@@ -147,10 +156,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         setLoadKey((k) => k + 1);
       },
       upsert,
+      patch,
       remove,
       get: (videoId) => byId.get(videoId),
     }),
-    [byId, status, error, config, upsert, remove],
+    [byId, status, error, config, upsert, patch, remove],
   );
 
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;

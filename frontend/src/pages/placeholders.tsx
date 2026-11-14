@@ -15,11 +15,6 @@ function Pending({ title, withNav = true }: { title: string; withNav?: boolean }
   );
 }
 
-/** P-03 */
-export function ItemPage() {
-  const { videoId } = useParams();
-  return <Pending title={videoId ?? ""} withNav={false} />;
-}
 /** P-04 */
 export function ItemEditPage() {
   const { videoId } = useParams();

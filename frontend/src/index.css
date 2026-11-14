@@ -114,3 +114,32 @@ a { color: var(--accent); }
 .app-sheet-dialog::backdrop { background: var(--scrim); }
 .app-sheet-dialog .ng-sheet { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
 .app-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* P-03 Tarjeta */
+.app-hero { display: flex; justify-content: center; }
+.app-hero .ng-thumb, .app-hero-card .ng-thumb { width: min(60%, 260px); margin: 0 auto; }
+.app-hero-card { box-shadow: none; background: transparent; align-items: center; }
+.app-hero-card .ng-skel { width: 60%; }
+.app-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.app-actions, .app-links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.app-options { display: flex; flex-direction: column; gap: var(--space-2); }
+.app-suggestion {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.app-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.app-check {
+  display: flex; align-items: flex-start; gap: var(--space-3); min-height: var(--tap-min);
+  padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface); cursor: pointer;
+}
+.app-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--accent); }
+.app-check:has(input:checked) .app-check__body > :first-child { text-decoration: line-through; color: var(--ink-muted); }
+.app-check:has(input:disabled) { cursor: default; }
+.app-check__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app-steps { margin: 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-2); }
+.app-extlink {
+  display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min);
+  color: var(--accent); font: 600 14px/20px var(--font-sans); text-decoration: none;
+}
+.app-check .app-extlink { min-height: 32px; }

@@ -52,6 +52,34 @@ export async function getItem(videoId: string, signal?: AbortSignal): Promise<It
 }
 
 /** E-15: DISCARDED → PENDING | NEEDS_INPUT. */
-export async function restoreItem(videoId: string, version: number): Promise<Item> {
-  return (await api<Item>(`/v1/items/${encodeURIComponent(videoId)}/restore`, { method: "POST", ifMatch: version })).data;
+export const restoreItem = (videoId: string, version: number) => runAction(videoId, "restore", version);
+
+/** Acciones de estado E-10…E-16 (todas con If-Match y responden el Item con su nueva versión). */
+export type ItemAction = "done" | "undo-done" | "snooze" | "reschedule" | "discard" | "restore" | "reactivate";
+
+export async function runAction(videoId: string, action: ItemAction, version: number, body?: unknown): Promise<Item> {
+  return (
+    await api<Item>(`/v1/items/${encodeURIComponent(videoId)}/${action}`, { method: "POST", ifMatch: version, body })
+  ).data;
+}
+
+/** E-17: solo desde DISCARDED (204). */
+export async function deleteItem(videoId: string, version: number): Promise<void> {
+  await api(`/v1/items/${encodeURIComponent(videoId)}`, { method: "DELETE", ifMatch: version });
+}
+
+/** E-18: merge de marcas; sin If-Match ni cambio de versión (D-03). */
+export async function patchChecklist(
+  videoId: string,
+  marks: Record<string, boolean>,
+): Promise<{ checklist: Record<string, boolean>; suggestDone: boolean }> {
+  return (await api<{ checklist: Record<string, boolean>; suggestDone: boolean }>(
+    `/v1/items/${encodeURIComponent(videoId)}/checklist`,
+    { method: "PATCH", body: marks },
+  )).data;
+}
+
+/** E-19: apertura desde un recordatorio; idempotente. 404 es silencioso (Diseño UX §2). */
+export async function openNotification(slotKey: string): Promise<void> {
+  await api(`/v1/notifications/${encodeURIComponent(slotKey)}/open`, { method: "POST" }).catch(() => undefined);
 }

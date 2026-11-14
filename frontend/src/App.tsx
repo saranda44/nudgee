@@ -8,7 +8,8 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage.tsx";
 import { FolderPage } from "./pages/FolderPage.tsx";
 import { LibraryPage } from "./pages/LibraryPage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
-import { ItemEditPage, ItemPage, NotFoundPage, RemindersPage } from "./pages/placeholders.tsx";
+import { ItemPage } from "./pages/ItemPage.tsx";
+import { ItemEditPage, NotFoundPage, RemindersPage } from "./pages/placeholders.tsx";
 
 const router = createBrowserRouter([
   {
