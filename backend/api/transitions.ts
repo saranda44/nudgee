@@ -49,34 +49,61 @@ function getDiscardRetentionDays(): number {
   return parseNumber(process.env.DISCARD_RETENTION_DAYS, 30);
 }
 
-/**
- * Valida que la fecha sea YYYY-MM-DD real, no esté en el pasado y no pase de 365 días.
- * Devuelve el error de validación o `null` si es válida.
- */
-function validateScheduleDate(dateStr: string, userTimezone: string): { code: string; message: string } | null {
+type DateError = { code: string; message: string };
+
+/** Valida que la fecha sea YYYY-MM-DD y exista en el calendario (sin depender de la zona del Lambda). */
+function validateDateFormat(dateStr: string): DateError | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return { code: "INVALID_DATE", message: "must be in YYYY-MM-DD format" };
   }
-
   const [year, month, day] = dateStr.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
     return { code: "INVALID_DATE", message: "must be a valid date" };
   }
+  return null;
+}
 
-  // "Hoy" en la zona del usuario
-  const todayInUserTz = new Date(new Date().toLocaleString("en-US", { timeZone: userTimezone }));
-  todayInUserTz.setHours(0, 0, 0, 0);
-  if (date < todayInUserTz) {
+/**
+ * Valida que la fecha esté entre "hoy" y "hoy + 365 días" en la zona del usuario (Contratos E-13).
+ * Compara cadenas YYYY-MM-DD: el orden lexicográfico coincide con el cronológico.
+ */
+function validateScheduleRange(dateStr: string, userTimezone: string, now: Date): DateError | null {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: userTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
+  const today = `${part("year")}-${part("month")}-${part("day")}`;
+  if (dateStr < today) {
     return { code: "DATE_IN_PAST", message: "must be today or later" };
   }
-
-  const maxDate = new Date(todayInUserTz);
-  maxDate.setDate(maxDate.getDate() + 365);
-  if (date > maxDate) {
+  const max = new Date(`${today}T00:00:00Z`);
+  max.setUTCDate(max.getUTCDate() + 365);
+  if (dateStr > max.toISOString().slice(0, 10)) {
     return { code: "INVALID_DATE", message: "must be at most 365 days in the future" };
   }
   return null;
+}
+
+/**
+ * Zona IANA del PROFILE. Sin perfil o sin zona usa UTC, igual que el dispatcher; la PWA la
+ * envía con E-04 al iniciar sesión, así que en la práctica siempre existe.
+ */
+async function readUserTimezone(userId: string): Promise<string> {
+  const { Item } = await docClient.send(
+    new GetCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: `USER#${userId}`, SK: "PROFILE" },
+      ProjectionExpression: "#tz",
+      // `timezone` es palabra reservada de DynamoDB.
+      ExpressionAttributeNames: { "#tz": "timezone" },
+    }),
+  );
+  const timezone = Item?.timezone;
+  return typeof timezone === "string" && timezone ? timezone : "UTC";
 }
 
 // ── Helpers de transición ────────────────────────────────────────────────────
@@ -308,8 +335,9 @@ export const transitionRoutes: Route[] = [
         );
       }
 
-      // TODO: obtener timezone del usuario desde el perfil
-      const dateError = validateScheduleDate(date, "America/Mexico_City");
+          // El formato se valida antes de leer el perfil: un 400 por formato no cuesta lecturas.
+      const dateError =
+        validateDateFormat(date) ?? validateScheduleRange(date, await readUserTimezone(requireUserId(ctx)), new Date());
       if (dateError) {
         return buildValidationErrorResponse([{ pointer: "/date", ...dateError }], ctx.correlationId);
       }
