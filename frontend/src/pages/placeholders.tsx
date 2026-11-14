@@ -15,13 +15,6 @@ function Pending({ title, withNav = true }: { title: string; withNav?: boolean }
   );
 }
 
-/** P-02 */
-export const LibraryPage = () => <Pending title={t("library.title")} />;
-/** P-07 */
-export function FolderPage() {
-  const { category } = useParams();
-  return <Pending title={category ?? ""} />;
-}
 /** P-03 */
 export function ItemPage() {
   const { videoId } = useParams();

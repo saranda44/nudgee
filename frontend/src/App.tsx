@@ -2,18 +2,13 @@
 
 import { createBrowserRouter, RouterProvider } from "react-router";
 import { RequireAuth } from "./auth/RequireAuth.tsx";
-import { NavLayout, RootLayout } from "./components/Layouts.tsx";
+import { NavLayout, RootLayout, SessionLayout } from "./components/Layouts.tsx";
 import { AccountPage } from "./pages/AccountPage.tsx";
 import { AuthCallbackPage } from "./pages/AuthCallbackPage.tsx";
+import { FolderPage } from "./pages/FolderPage.tsx";
+import { LibraryPage } from "./pages/LibraryPage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
-import {
-  FolderPage,
-  ItemEditPage,
-  ItemPage,
-  LibraryPage,
-  NotFoundPage,
-  RemindersPage,
-} from "./pages/placeholders.tsx";
+import { ItemEditPage, ItemPage, NotFoundPage, RemindersPage } from "./pages/placeholders.tsx";
 
 const router = createBrowserRouter([
   {
@@ -25,16 +20,21 @@ const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           {
-            element: <NavLayout />,
+            element: <SessionLayout />,
             children: [
-              { path: "/", element: <LibraryPage /> }, // P-02
-              { path: "/library/:category", element: <FolderPage /> }, // P-07
-              { path: "/reminders", element: <RemindersPage /> }, // P-06
-              { path: "/account", element: <AccountPage /> }, // P-05
+              {
+                element: <NavLayout />,
+                children: [
+                  { path: "/", element: <LibraryPage /> }, // P-02
+                  { path: "/library/:category", element: <FolderPage /> }, // P-07
+                  { path: "/reminders", element: <RemindersPage /> }, // P-06
+                  { path: "/account", element: <AccountPage /> }, // P-05
+                ],
+              },
+              { path: "/items/:videoId", element: <ItemPage /> }, // P-03
+              { path: "/items/:videoId/edit", element: <ItemEditPage /> }, // P-04
             ],
           },
-          { path: "/items/:videoId", element: <ItemPage /> }, // P-03
-          { path: "/items/:videoId/edit", element: <ItemEditPage /> }, // P-04
         ],
       },
       { path: "*", element: <NotFoundPage /> }, // P-404
