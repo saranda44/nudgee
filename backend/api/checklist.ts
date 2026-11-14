@@ -130,63 +130,79 @@ export const checklistRoutes: Route[] = [
       // Calcular suggestDone
       const suggestDone = calculateSuggestDone(newChecklist, existingIds);
 
-      // Construir UpdateExpression dinámicamente
-      const updateExpressions: string[] = [];
-      const expressionValues: Record<string, unknown> = {};
-      const expressionNames: Record<string, string> = {};
+      // El worker no siempre crea el mapa `checklist`: DynamoDB rechaza `checklist.#id` si el
+      // mapa no existe ("document path ... invalid"). Primera marca: se crea el mapa completo
+      // con attribute_not_exists; después, solo las llaves enviadas (merge, D-03).
+      const STATE_CONDITION =
+        "#s IN (:pending, :dormant) AND #cat IN (:recipe, :routine, :tutorial, :movie, :place, :book, :music, :podcast)";
+      const STATE_VALUES = {
+        ":pending": "PENDING",
+        ":dormant": "DORMANT",
+        ":recipe": "RECIPE",
+        ":routine": "ROUTINE",
+        ":tutorial": "TUTORIAL",
+        ":movie": "MOVIE_SERIES",
+        ":place": "PLACE",
+        ":book": "BOOK",
+        ":music": "MUSIC",
+        ":podcast": "PODCAST",
+      };
 
-      let idx = 0;
-      for (const [id, value] of Object.entries(updates)) {
-        const attrName = `#id${idx}`;
-        const valueName = `:val${idx}`;
-        updateExpressions.push(`checklist.${attrName} = ${valueName}`);
-        expressionNames[attrName] = id;
-        expressionValues[valueName] = value;
-        idx++;
-      }
+      const buildUpdate = (createMap: boolean) => {
+        if (createMap) {
+          return {
+            UpdateExpression: "SET #checklist = :checklist",
+            ConditionExpression: `${STATE_CONDITION} AND attribute_not_exists(#checklist)`,
+            ExpressionAttributeNames: { "#checklist": "checklist", "#s": "status", "#cat": "category" },
+            ExpressionAttributeValues: { ":checklist": updates, ...STATE_VALUES },
+          };
+        }
+        const sets: string[] = [];
+        const names: Record<string, string> = { "#checklist": "checklist", "#s": "status", "#cat": "category" };
+        const values: Record<string, unknown> = { ...STATE_VALUES };
+        Object.entries(updates).forEach(([id, value], idx) => {
+          sets.push(`#checklist.#id${idx} = :val${idx}`);
+          names[`#id${idx}`] = id;
+          values[`:val${idx}`] = value;
+        });
+        return {
+          UpdateExpression: `SET ${sets.join(", ")}`,
+          ConditionExpression: `${STATE_CONDITION} AND attribute_exists(#checklist)`,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        };
+      };
 
-      // Actualizar DynamoDB
-      try {
-        await docClient.send(
-          new UpdateCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` },
-            UpdateExpression: `SET ${updateExpressions.join(", ")}`,
-            ConditionExpression: "#s IN (:pending, :dormant) AND #cat IN (:recipe, :routine, :tutorial, :movie, :place, :book, :music, :podcast)",
-            ExpressionAttributeNames: { ...expressionNames, "#s": "status", "#cat": "category" },
-            ExpressionAttributeValues: {
-              ...expressionValues,
-              ":pending": "PENDING",
-              ":dormant": "DORMANT",
-              ":recipe": "RECIPE",
-              ":routine": "ROUTINE",
-              ":tutorial": "TUTORIAL",
-              ":movie": "MOVIE_SERIES",
-              ":place": "PLACE",
-              ":book": "BOOK",
-              ":music": "MUSIC",
-              ":podcast": "PODCAST",
+      const conflict = () =>
+        buildProblemResponse(
+          new ProblemError({
+            status: 409,
+            code: "INVALID_STATE_TRANSITION",
+            title: "Action not allowed in the current status",
+            extensions: {
+              action: "checklist",
+              currentStatus: status,
+              allowedStatuses: ["PENDING", "DORMANT"],
+              allowedCategories: CHECKLISTABLE_CATEGORIES,
             },
           }),
+          ctx.correlationId,
         );
-      } catch (error: unknown) {
-        if ((error as any)?.name === "ConditionalCheckFailedException") {
-          return buildProblemResponse(
-            new ProblemError({
-              status: 409,
-              code: "INVALID_STATE_TRANSITION",
-              title: "Action not allowed in the current status",
-              extensions: {
-                action: "checklist",
-                currentStatus: status,
-                allowedStatuses: ["PENDING", "DORMANT"],
-                allowedCategories: CHECKLISTABLE_CATEGORIES,
-              },
-            }),
-            ctx.correlationId,
+
+      // Intento 1 según lo leído; si la condición falla puede ser porque otro dispositivo creó
+      // (o el mapa ya no) existe: un reintento con la otra forma. Si vuelve a fallar, es estado.
+      let createMap = item.checklist === undefined;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await docClient.send(
+            new UpdateCommand({ TableName: TABLE_NAME, Key: { PK: `USER#${userId}`, SK: `ITEM#${videoId}` }, ...buildUpdate(createMap) }),
           );
+          break;
+        } catch (error: unknown) {
+          if ((error as { name?: string })?.name !== "ConditionalCheckFailedException") throw error;
+          if (attempt > 0) return conflict();
+          createMap = !createMap;
         }
-        throw error;
       }
 
       return {

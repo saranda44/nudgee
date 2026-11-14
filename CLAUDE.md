@@ -23,7 +23,7 @@ backend/            Un package.json para todas las Lambdas (TypeScript, Node 22,
   schemas/          Paquete compartido: TypeBox + Ajv, 10 categorías, schema plano de Gemini
   scripts/build.mjs Empaqueta cada Lambda en dist/<lambda>/index.js
 infra/              Terraform: main.tf raíz + modules/<servicio>; bootstrap.sh crea el stack persistente
-frontend/           (Fase 8, aún no existe) PWA React + Vite
+frontend/           PWA React + Vite (Fase 8, en curso): ver frontend/README.md (setup, estructura, estado por etapa)
 ```
 
 ## Comandos
@@ -32,6 +32,7 @@ frontend/           (Fase 8, aún no existe) PWA React + Vite
 cd backend && npm run typecheck   # tsc --noEmit — debe pasar antes de cada commit
 cd backend && npm run build       # esbuild → dist/
 cd infra && terraform fmt -check && terraform validate
+cd frontend && npm run typecheck && npm test   # Vitest; npm run dev en :5173 (ver frontend/README.md)
 ```
 
 ```bash
