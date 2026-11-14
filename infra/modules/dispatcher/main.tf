@@ -17,7 +17,7 @@ resource "aws_lambda_function" "dispatcher" {
   function_name = "${var.project_name}-dispatcher-${var.environment}"
   role          = data.aws_iam_role.lab_role.arn
   handler       = "index.handler"
-  runtime       = "nodejs20.x"
+  runtime       = "nodejs22.x"
   timeout       = var.lambda_timeout
   memory_size   = 512
 

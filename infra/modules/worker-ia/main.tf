@@ -14,7 +14,7 @@ resource "aws_lambda_function" "worker_ia" {
   function_name    = "${var.project_name}-worker-ia-${var.environment}"
   role             = data.aws_iam_role.lab_role.arn
   handler          = "index.handler"
-  runtime          = "nodejs20.x"
+  runtime          = "nodejs22.x"
   timeout          = 60
   memory_size      = 512
 

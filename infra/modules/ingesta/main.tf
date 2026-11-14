@@ -14,7 +14,7 @@ resource "aws_lambda_function" "ingesta" {
   function_name    = "${var.project_name}-ingesta-${var.environment}"
   role             = data.aws_iam_role.lab_role.arn
   handler          = "index.handler"
-  runtime          = "nodejs20.x"
+  runtime          = "nodejs22.x"
   timeout          = 10
   memory_size      = 512
 

@@ -25,7 +25,7 @@ for (const lambda of LAMBDAS) {
     outfile: path.join(outdir, "index.js"),
     bundle: true,
     platform: "node",
-    target: "node20",
+    target: "node22",
     format: "cjs",
     minify: true,
     sourcemap: false,
