@@ -5,7 +5,7 @@
 
 import { createHash } from "crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
 
@@ -97,41 +97,44 @@ export const pushSubscriptionRoutes: Route[] = [
       const subscriptionId = calculateSubscriptionId(endpoint as string);
       const now = new Date().toISOString();
 
-      try {
-        // Upsert: si ya existe, solo actualiza las claves + lastSuccessAt
-        const result = await docClient.send(
-          new PutCommand({
-            TableName: TABLE_NAME,
-            Item: {
-              PK: `USER#${userId}`,
-              SK: `SUB#${subscriptionId}`,
-              subscriptionId,
-              endpoint,
-              expirationTime: expirationTime ?? null,
-              keys,
-              platform: platform ?? null,
-              createdAt: now,
-              lastSuccessAt: now,
-              entityType: "PUSH_SUBSCRIPTION",
-            },
-            ReturnValues: "NONE",
-          }),
-        );
-
-        // Determinar si es nuevo o actualización
-        // En DynamoDB, PutItem siempre reemplaza, así que no sabemos si es nuevo
-        // Contratos dice devolver 201 si nuevo, 200 si actualización
-        // Por simplicidad, devolvemos 201 siempre (creado o actualizado)
-        // En producción, podrías hacer un GetItem primero para saber
-
-        return {
-          statusCode: 201,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subscriptionId }),
-        };
-      } catch (error: unknown) {
-        throw error;
+      // Upsert en una sola escritura: ALL_OLD dice si ya existía (201 alta / 200 actualización)
+      // y if_not_exists conserva el createdAt original. El schedule no se toca aquí: lo crea
+      // E-04 una sola vez (NTF-02). Todos los atributos con alias (`keys` es palabra reservada).
+      const fields: Record<string, unknown> = {
+        subscriptionId,
+        endpoint,
+        expirationTime: expirationTime ?? null,
+        // Solo las llaves que usa web-push; nada extra que mande el cliente.
+        keys: { p256dh: (keys as Record<string, string>).p256dh, auth: (keys as Record<string, string>).auth },
+        platform: platform ?? null,
+        lastSuccessAt: now,
+        entityType: "PUSH_SUBSCRIPTION",
+      };
+      const names: Record<string, string> = { "#createdAt": "createdAt" };
+      const values: Record<string, unknown> = { ":now": now };
+      const sets = ["#createdAt = if_not_exists(#createdAt, :now)"];
+      for (const [field, value] of Object.entries(fields)) {
+        names[`#${field}`] = field;
+        values[`:${field}`] = value;
+        sets.push(`#${field} = :${field}`);
       }
+
+      const { Attributes: old } = await docClient.send(
+        new UpdateCommand({
+          TableName: TABLE_NAME,
+          Key: { PK: `USER#${userId}`, SK: `SUB#${subscriptionId}` },
+          UpdateExpression: `SET ${sets.join(", ")}`,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+          ReturnValues: "ALL_OLD",
+        }),
+      );
+
+      return {
+        statusCode: old ? 200 : 201,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionId }),
+      };
     },
   },
 
@@ -152,23 +155,15 @@ export const pushSubscriptionRoutes: Route[] = [
         );
       }
 
-      try {
-        await docClient.send(
-          new DeleteCommand({
-            TableName: TABLE_NAME,
-            Key: { PK: `USER#${userId}`, SK: `SUB#${subscriptionId}` },
-          }),
-        );
+      await docClient.send(
+        new DeleteCommand({
+          TableName: TABLE_NAME,
+          Key: { PK: `USER#${userId}`, SK: `SUB#${subscriptionId}` },
+        }),
+      );
 
-        // Idempotente: devolver 204 incluso si no existía
-        return {
-          statusCode: 204,
-          headers: {},
-          body: "",
-        };
-      } catch (error: unknown) {
-        throw error;
-      }
+      // Idempotente: 204 aunque no existiera
+      return { statusCode: 204, headers: {}, body: "" };
     },
   },
 ];

@@ -13,7 +13,7 @@ Referencia los IDs de los documentos en código, commits y PRs: `US-xx`, `T-xx` 
 ## Estructura
 
 ```
-backend/            Un package.json para todas las Lambdas (TypeScript, Node 20, CJS via esbuild)
+backend/            Un package.json para todas las Lambdas (TypeScript, Node 22, CJS via esbuild)
   api/              Lambda API: router interno (router.ts) + rutas por archivo (E-01…E-22 excepto E-05)
   ingesta/          Lambda Ingesta: POST /v1/items (E-05)
   worker-ia/        Consumidor SQS FIFO → Gemini → DynamoDB; prompts/ versionados, fixtures/gemini
@@ -35,10 +35,10 @@ cd infra && terraform fmt -check && terraform validate
 ```
 
 ```bash
-cd backend && npm test            # node:test sobre **/*.test.ts (Node ≥ 22.18 en local; Lambda corre en Node 20)
+cd backend && npm test            # node:test sobre **/*.test.ts (Node ≥ 22.18 en local; Lambda corre en Node 22)
 ```
 
-Tests en `api/*.test.ts` (router, transiciones E-10…E-17, recurso Item); el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS (el `Item` de la falla condicional viene *marshalled*, igual que en el SDK real). Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
+Tests en `api/*.test.ts` (router, transiciones E-10…E-17, recurso Item, E-19, E-20) y `dispatcher/index.test.ts`; el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS (el `Item` de la falla condicional viene *marshalled*, igual que en el SDK real). Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
 
 Los mocks no detectan errores que solo DynamoDB real rechaza (palabras reservadas como `timezone`/`name`, sintaxis de `UpdateExpression`): después de desplegar, prueba con `curl` contra la API.
 

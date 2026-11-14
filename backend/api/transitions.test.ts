@@ -55,7 +55,7 @@ interface Action {
   allowed: Status[];
   body?: unknown;
   okStatus: number;
-  /** Lee el ítem (GetItem) antes de escribir: necesita savedAt/dataSource. */
+  /** Hace un GetItem antes de escribir (savedAt/dataSource del ítem, o timezone del PROFILE en E-13). */
   reads?: boolean;
 }
 
@@ -63,7 +63,7 @@ const ACTIONS: Action[] = [
   { id: "E-10", action: "done", method: "POST", suffix: "/done", allowed: ["PENDING"], okStatus: 200 },
   { id: "E-11", action: "undo-done", method: "POST", suffix: "/undo-done", allowed: ["DONE"], okStatus: 200, reads: true },
   { id: "E-12", action: "snooze", method: "POST", suffix: "/snooze", allowed: ["PENDING"], body: { days: 3 }, okStatus: 200 },
-  { id: "E-13", action: "reschedule", method: "POST", suffix: "/reschedule", allowed: ["PENDING"], body: { date: "2026-06-16" }, okStatus: 200 },
+  { id: "E-13", action: "reschedule", method: "POST", suffix: "/reschedule", allowed: ["PENDING"], body: { date: "2026-06-16" }, okStatus: 200, reads: true },
   { id: "E-14", action: "discard", method: "POST", suffix: "/discard", allowed: ["PENDING", "NEEDS_INPUT", "DORMANT"], okStatus: 200 },
   { id: "E-15", action: "restore", method: "POST", suffix: "/restore", allowed: ["DISCARDED"], okStatus: 200, reads: true },
   { id: "E-16", action: "reactivate", method: "POST", suffix: "/reactivate", allowed: ["DORMANT"], okStatus: 200, reads: true },
@@ -90,10 +90,12 @@ interface FakeItem {
  * Tabla falsa con un solo ítem (o vacía). Igual que DynamoDB: la falla condicional solo
  * incluye `Item` si el comando pidió `ReturnValuesOnConditionCheckFailure: "ALL_OLD"`.
  */
-function fakeTable(seed?: FakeItem) {
+function fakeTable(seed?: FakeItem, timezone = "America/Mexico_City") {
   const item = seed && { savedAt: SAVED_AT, dataSource: "AI", ...seed };
   return mockDdb((input, commandName) => {
-    if (commandName === "GetCommand") return { Item: item };
+    if (commandName === "GetCommand") {
+      return input.Key.SK === "PROFILE" ? { Item: timezone ? { timezone } : undefined } : { Item: item };
+    }
     const ok =
       item !== undefined &&
       conditionStatuses(input).includes(item.status) &&
@@ -297,31 +299,51 @@ describe("E-13 reschedule (RF §4.5)", () => {
     });
   }
 
-  const invalid: Array<[string, unknown, string]> = [
-    ["fecha pasada", "2026-06-14", "pasada"],
-    ["más de 365 días", "2027-06-16", "INVALID_DATE"],
-    ["fecha imposible", "2026-02-30", "INVALID_DATE"],
-    ["formato dd/mm/aaaa", "16/06/2026", "INVALID_DATE"],
-    ["no string", 20260616, "INVALID_TYPE"],
+  // [caso, date, código, ¿lee el PROFILE?] — solo los errores de rango necesitan la zona.
+  const invalid: Array<[string, unknown, string, boolean]> = [
+    ["fecha pasada", "2026-06-14", "DATE_IN_PAST", true],
+    ["más de 365 días", "2027-06-16", "INVALID_DATE", true],
+    ["fecha imposible", "2026-02-30", "INVALID_DATE", false],
+    ["formato dd/mm/aaaa", "16/06/2026", "INVALID_DATE", false],
+    ["no string", 20260616, "INVALID_TYPE", false],
   ];
-  for (const [name, date, code] of invalid) {
-    it(`${name} → 400 y no toca DynamoDB`, async () => {
+  for (const [name, date, code, readsProfile] of invalid) {
+    it(`${name} → 400 y no escribe en DynamoDB`, async () => {
       const { res, ddb } = await sentInput(RESCHEDULE, { date });
       assertProblem(res, 400, "VALIDATION_ERROR");
       const error = parseBody(res).errors[0];
       assert.equal(error.pointer, "/date");
-      if (code !== "pasada") assert.equal(error.code, code);
-      assert.equal(ddb.callCount, 0);
+      assert.equal(error.code, code);
+      assert.deepEqual(
+        ddb.inputs.map((i) => i.Key.SK),
+        readsProfile ? ["PROFILE"] : [],
+      );
     });
   }
 
-  it(
-    "fecha pasada → código DATE_IN_PAST (contrato E-13)",
-    async () => {
-      const { res } = await sentInput(RESCHEDULE, { date: "2026-06-14" });
-      assert.equal(parseBody(res).errors[0].code, "DATE_IN_PAST");
-    },
-  );
+  // NOW = 2026-06-15T18:00Z: en Tokio ya es 16-jun; en Honolulu (UTC-10) aún es 15-jun.
+  const byZone: Array<[string, string, number]> = [
+    ["Asia/Tokyo", "2026-06-15", 400],
+    ["Asia/Tokyo", "2026-06-16", 200],
+    ["Pacific/Honolulu", "2026-06-15", 200],
+  ];
+  for (const [timezone, date, status] of byZone) {
+    it(`"hoy" según USER.timezone: ${timezone} con ${date} → ${status}`, async () => {
+      mock.timers.enable({ apis: ["Date"], now: NOW });
+      const ddb = fakeTable({ status: "PENDING", version: 3 }, timezone);
+      const res = await call(RESCHEDULE, { ifMatch: '"3"', body: { date } });
+      assert.equal(res.statusCode, status, `body: ${res.body}`);
+      assert.deepEqual(ddb.inputs[0].Key, { PK: `USER#${TEST_SUB}`, SK: "PROFILE" });
+    });
+  }
+
+  it("perfil sin timezone → usa UTC", async () => {
+    mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-16T02:00:00.000Z") }); // 15-jun en CDMX
+    fakeTable({ status: "PENDING", version: 3 }, "");
+    const res = await call(RESCHEDULE, { ifMatch: '"3"', body: { date: "2026-06-15" } });
+    assertProblem(res, 400, "VALIDATION_ERROR");
+    assert.equal(parseBody(res).errors[0].code, "DATE_IN_PAST");
+  });
 });
 
 describe("E-14 discard", () => {

@@ -1059,8 +1059,7 @@ Content-Type: application/json
 Content-Type: application/json
 
 {
-  "subscriptionId": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-  "scheduleState": "ACTIVE"
+  "subscriptionId": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 }
 ```
 
@@ -1068,7 +1067,7 @@ Content-Type: application/json
 -> 200 OK            (el mismo navegador ya estaba suscrito: se actualizan llaves y expirationTime)
 Content-Type: application/json
 
-{ "subscriptionId": "9f86d08...", "scheduleState": "ACTIVE" }
+{ "subscriptionId": "9f86d08..." }
 ```
 
 ```
@@ -1081,7 +1080,8 @@ Content-Type: application/problem+json
 ```
 
 - Lista blanca inicial: `fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.notify.windows.com`.
-- Efecto: crea el schedule `nudgee-{userId}` si no existe. `scheduleState` queda `ACTIVE` si hay pendientes, o `PAUSED` si no (RF §5).
+- Solo se guardan `keys.p256dh` y `keys.auth`; `createdAt` se conserva en una actualización.
+- No toca el schedule ni devuelve `scheduleState`: el schedule lo crea E-04 una sola vez y nunca se pausa (Diseño UX NTF-02). El estado se consulta en E-03.
 
 ---
 
@@ -1098,7 +1098,7 @@ Authorization: Bearer {accessToken}
 -> 204 No Content    (borrada, o no existía: idempotente)
 ```
 
-Si era la última suscripción, `scheduleState = PAUSED` y se pausa el schedule.
+El schedule no se pausa aunque sea la última suscripción (NTF-02): los recordatorios siguen llegando a la bandeja con `deliveryStatus = IN_APP`.
 
 ---
 
