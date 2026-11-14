@@ -83,6 +83,7 @@ export const esMX = {
   "item.rescheduleLabel": "Día",
   "item.rescheduleInvalid": "Elige una fecha entre hoy y dentro de un año.",
   "item.rescheduledToast": "Te lo recordamos el {date}.",
+  "item.snoozedToast": "Pospuesto hasta el {date}.",
   "item.edit": "Editar",
   "item.fillForm": "Llenar formulario",
   "item.discard": "Descartar",

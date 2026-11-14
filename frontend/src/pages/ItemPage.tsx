@@ -166,7 +166,10 @@ export function ItemPage() {
     act("discard", undefined, (u) => toast({ message: t("item.discardedToast"), action: { label: t("common.undo"), onClick: undoWith("restore")(u) } }));
 
   const snooze = async (amount: number) => {
-    if (await act("snooze", { days: amount })) setOverlay(null);
+    const ok = await act("snooze", { days: amount }, (u) => {
+      if (u.snoozeUntil) toast({ message: t("item.snoozedToast", { date: formatDateTime(u.snoozeUntil) }) });
+    });
+    if (ok) setOverlay(null);
   };
 
   const reschedule = async () => {
