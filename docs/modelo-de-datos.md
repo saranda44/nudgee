@@ -81,7 +81,7 @@ erDiagram
         S name "de Google"
         S timezone "IANA, ej. America/Mexico_City"
         S locale "es-MX"
-        S scheduleState "NONE | ACTIVE | PAUSED"
+        S scheduleState "NONE | ACTIVE"
         S createdAt "ISO-8601 UTC"
         S lastLoginAt "ISO-8601 UTC"
         N version "optimistic locking"
@@ -274,7 +274,7 @@ Convenciones:
 | `email`, `name` | S | — | Sí | Únicos datos de Google que se guardan (NFR-08). Nunca van a logs |
 | `timezone` | S | — | Sí | Zona IANA detectada en el cliente; se usa en el schedule y en `slotKey` (US-37) |
 | `locale` | S | — | Sí | `es-MX` por defecto (NFR-13) |
-| `scheduleState` | S | — | Sí | `NONE` (sin suscripción), `ACTIVE`, `PAUSED` (sin pendientes o sin suscripciones) |
+| `scheduleState` | S | — | Sí | `NONE` (aún no llega la zona horaria por E-04), `ACTIVE` (schedule creado; nunca se pausa, NTF-02) |
 | `createdAt`, `lastLoginAt` | S | — | Sí | ISO-8601 UTC |
 | `version` | N | — | Sí | *Optimistic locking* |
 
@@ -326,7 +326,7 @@ El nombre del schedule de EventBridge es determinístico (`nudgee-{userId}`), po
 | `platform` | S | — | No | Etiqueta corta (navegador + SO), solo para soporte |
 | `createdAt`, `lastSuccessAt` | S | — | Sí / No | ISO-8601 UTC |
 
-Un `404`/`410` borra el registro en la misma ejecución (NFR-04). Si era la última suscripción, `USER.scheduleState = PAUSED`.
+Un `404`/`410` borra el registro en la misma ejecución (NFR-04). El schedule no se pausa aunque no queden suscripciones (NTF-02).
 
 ## 3.4 NOTIFICATION — recordatorio enviado
 

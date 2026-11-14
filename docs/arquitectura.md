@@ -274,8 +274,7 @@ sequenceDiagram
   X->>X: motor de reglas (reprogramados, eventos en 7 días, más viejos, cooldown, eventos pasados)
   X->>D: ítems con 3 recordatorios ignorados a DORMANT (AP-15)
   alt sin candidatos
-    X->>S: pausa el schedule
-    X->>D: scheduleState = PAUSED
+    X->>X: termina sin registrar (el schedule sigue activo, NTF-02)
   else hay candidato
     X->>D: GetItem del ítem elegido (texto de la notificación)
     X->>D: TransactWriteItems (Put NOTIF#slotKey + notifyCount + 1)
