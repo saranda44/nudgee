@@ -1,0 +1,68 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/inter/800.css";
+@import "./styles/tokens.css";
+@import "./styles/components.css";
+
+/* Base de la app (lo que el CSS de referencia deja a cada pantalla). */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { min-height: 100dvh; }
+button, input, textarea, select { font: inherit; color: inherit; }
+h1, h2, h3, p { margin: 0; }
+a { color: var(--accent); }
+
+/* Columna centrada, móvil primero (360 px) hasta content-max en desktop. */
+.app-page {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+/* Con bottom nav: reservar nav-height + 32 px para que no tape la última tarjeta. */
+.app-page--with-nav { padding-bottom: calc(var(--nav-height) + 32px + env(safe-area-inset-bottom)); }
+
+.app-nav {
+  position: fixed;
+  inset: auto 0 env(safe-area-inset-bottom) 0;
+  z-index: 10;
+  pointer-events: none;
+}
+.app-nav > * { pointer-events: auto; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ng-nav { background: var(--surface); }
+}
+
+.app-center {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+.app-stack { display: flex; flex-direction: column; gap: var(--space-4); align-items: center; max-width: 360px; }
+.app-muted { color: var(--ink-muted); }
+.app-error { color: var(--danger); }
+
+.app-offline {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: var(--space-2) var(--space-4);
+  background: var(--inverse);
+  color: var(--on-inverse);
+  text-align: center;
+}
+
+.app-spin { animation: app-spin 1s linear infinite; }
+@keyframes app-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .app-spin { animation: none; } }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

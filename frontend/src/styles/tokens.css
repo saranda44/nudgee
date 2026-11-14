@@ -1,0 +1,116 @@
+/* Generado por scripts/build-tokens.mjs desde design/tokens.json. No editar a mano. */
+:root {
+  color-scheme: light dark;
+  --bg: #ECEBE6;
+  --surface: #F7F6F2;
+  --surface-muted: #E2E0D9;
+  --line: #D6D3CA;
+  --ink: #141413;
+  --ink-muted: #625F58;
+  --inverse: #141413;
+  --on-inverse: #F7F6F2;
+  --accent: #1F4FFF;
+  --accent-pressed: #1A3FD1;
+  --on-accent: #FFFFFF;
+  --accent-soft: #1f4fff1a;
+  --focus-ring: {accent};
+  --success: #067647;
+  --warning: #B54708;
+  --danger: #B42318;
+  --glass: rgba(247,246,242,0.78);
+  --scrim: rgba(20,20,19,0.4);
+  --cat-recipe: #D9480F;
+  --cat-recipe-soft: #d9480f1f;
+  --cat-routine: #2B8A3E;
+  --cat-routine-soft: #2b8a3e1f;
+  --cat-tutorial: #B7791F;
+  --cat-tutorial-soft: #b7791f1f;
+  --cat-movie: #D6336C;
+  --cat-movie-soft: #d6336c1f;
+  --cat-place: #E03131;
+  --cat-place-soft: #e031311f;
+  --cat-book: #8D5A2B;
+  --cat-book-soft: #8d5a2b1f;
+  --cat-music: #AE3EC9;
+  --cat-music-soft: #ae3ec91f;
+  --cat-podcast: #6741D9;
+  --cat-podcast-soft: #6741d91f;
+  --cat-event: #0C8599;
+  --cat-event-soft: #0c85991f;
+  --cat-other: #625F58;
+  --cat-other-soft: #625f581f;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 16px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(20,20,19,0.04), 0 6px 20px rgba(20,20,19,0.06);
+  --shadow-float: 0 10px 30px rgba(20,20,19,0.14);
+  --shadow-sheet: 0 -8px 40px rgba(20,20,19,0.16);
+  --tap-min: 44px;
+  --nav-height: 64px;
+  --fab-size: 56px;
+  --content-max: 720px;
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0E0E11;
+    --surface: #18181D;
+    --surface-muted: #24242B;
+    --line: #2E2E36;
+    --ink: #F4F4F6;
+    --ink-muted: #A1A1AA;
+    --inverse: #F4F4F6;
+    --on-inverse: #111114;
+    --accent: #6E8EFF;
+    --accent-pressed: #8DA6FF;
+    --on-accent: #0B0B0F;
+    --accent-soft: #6e8eff26;
+    --focus-ring: {accent};
+    --success: #47CD89;
+    --warning: #FDB022;
+    --danger: #F97066;
+    --glass: rgba(30,30,36,0.72);
+    --scrim: rgba(0,0,0,0.6);
+    --cat-recipe: #FF8A4C;
+    --cat-recipe-soft: #ff8a4c29;
+    --cat-routine: #51CF66;
+    --cat-routine-soft: #51cf6629;
+    --cat-tutorial: #FCC419;
+    --cat-tutorial-soft: #fcc41929;
+    --cat-movie: #F06595;
+    --cat-movie-soft: #f0659529;
+    --cat-place: #FF6B6B;
+    --cat-place-soft: #ff6b6b29;
+    --cat-book: #D4A373;
+    --cat-book-soft: #d4a37329;
+    --cat-music: #DA77F2;
+    --cat-music-soft: #da77f229;
+    --cat-podcast: #9775FA;
+    --cat-podcast-soft: #9775fa29;
+    --cat-event: #3BC9DB;
+    --cat-event-soft: #3bc9db29;
+    --cat-other: #A1A1AA;
+    --cat-other-soft: #a1a1aa29;
+    --shadow-card: 0 1px 2px rgba(0,0,0,0.5);
+    --shadow-float: 0 10px 30px rgba(0,0,0,0.6);
+    --shadow-sheet: 0 -8px 40px rgba(0,0,0,0.7);
+  }
+}
+
+.t-display { font: 800 32px/36px var(--font-sans); letter-spacing: -0.02em; }
+.t-title { font: 800 24px/28px var(--font-sans); letter-spacing: -0.015em; }
+.t-headline { font: 700 16px/20px var(--font-sans); letter-spacing: -0.01em; }
+.t-body { font: 400 15px/22px var(--font-sans); }
+.t-body-strong { font: 600 15px/22px var(--font-sans); }
+.t-caption { font: 500 13px/18px var(--font-sans); }
+.t-micro { font: 600 11px/14px var(--font-sans); letter-spacing: 0.01em; }
