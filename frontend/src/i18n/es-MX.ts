@@ -262,6 +262,10 @@ export const esMX = {
   "notFound.title": "No encontramos esta página",
   "notFound.cta": "Ir a la biblioteca",
 
+  "error.pageTitle": "Algo salió mal",
+  "error.pageBody": "Tuvimos un problema inesperado. Intenta recargar la página.",
+  "error.reload": "Recargar",
+
   "offline.banner": "Sin conexión. Mostramos lo último que guardaste.",
   "common.retry": "Reintentar",
   "common.loading": "Cargando…",

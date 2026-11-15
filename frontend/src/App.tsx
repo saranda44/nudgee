@@ -11,11 +11,12 @@ import { LoginPage } from "./pages/LoginPage.tsx";
 import { ItemPage } from "./pages/ItemPage.tsx";
 import { ItemEditPage } from "./pages/ItemEditPage.tsx";
 import { RemindersPage } from "./pages/RemindersPage.tsx";
-import { NotFoundPage } from "./pages/placeholders.tsx";
+import { ErrorPage, NotFoundPage } from "./pages/placeholders.tsx";
 
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    errorElement: <ErrorPage />,
     children: [
       { path: "/auth/callback", element: <AuthCallbackPage /> }, // P-00
       { path: "/login", element: <LoginPage /> }, // P-01
