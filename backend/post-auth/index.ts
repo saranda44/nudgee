@@ -20,16 +20,22 @@ export const handler = async (event: PostAuthenticationTriggerEvent | PostConfir
   const attributes = event.request.userAttributes;
   const userId = attributes.sub;
   const now = new Date().toISOString();
+  // Hoy ningún IdP manda nombre (el sign-up de Cognito no lo pide); si más adelante se agrega
+  // Google sí llegará uno real aquí, y ESE caso sí debe refrescar `name` en cada login.
+  const idpName = attributes.name || attributes.given_name || undefined;
 
   try {
-    // Upsert: email/name/lastLoginAt se refrescan; los demás solo se escriben la primera vez.
+    // Upsert: email/lastLoginAt se refrescan siempre; los demás solo se escriben la primera vez.
+    // `name` es un caso especial: si el IdP no trae uno (como hoy), no se toca — así no borra el
+    // que el usuario haya puesto a mano en Cuenta (E-04) en cada login futuro.
     await docClient.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
         Key: { PK: `USER#${userId}`, SK: "PROFILE" },
         // Alias en todos los atributos: `name` y `timezone` son palabras reservadas de DynamoDB.
         UpdateExpression:
-          "SET #userId = :userId, #email = :email, #name = :name, #lastLoginAt = :now, " +
+          "SET #userId = :userId, #email = :email, #lastLoginAt = :now, " +
+          `#name = ${idpName ? ":name" : "if_not_exists(#name, :emptyName)"}, ` +
           "#createdAt = if_not_exists(#createdAt, :now), #timezone = if_not_exists(#timezone, :tz), " +
           "#locale = if_not_exists(#locale, :locale), #scheduleState = if_not_exists(#scheduleState, :none), " +
           "#version = if_not_exists(#version, :one)",
@@ -47,12 +53,12 @@ export const handler = async (event: PostAuthenticationTriggerEvent | PostConfir
         ExpressionAttributeValues: {
           ":userId": userId,
           ":email": attributes.email,
-          ":name": attributes.name ?? attributes.given_name ?? "",
           ":now": now,
           ":tz": DEFAULT_TIMEZONE,
           ":locale": DEFAULT_LOCALE,
           ":none": "NONE",
           ":one": 1,
+          ...(idpName ? { ":name": idpName } : { ":emptyName": "" }),
         },
       }),
     );
