@@ -25,3 +25,8 @@ export async function syncTimezone(): Promise<void> {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   await api("/v1/me", { method: "PATCH", body: { timezone } });
 }
+
+/** E-04: edición manual desde Cuenta (P-05). */
+export async function updateProfile(changes: { name?: string }): Promise<Profile> {
+  return (await api<Profile>("/v1/me", { method: "PATCH", body: changes })).data;
+}
