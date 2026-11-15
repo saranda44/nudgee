@@ -12,7 +12,10 @@ import { Thumbnail } from "./Thumbnail.tsx";
 
 export function CategoryFolder({ folder }: { folder: Folder }) {
   const view = folder.category === "all" ? ALL_VIEW : CATEGORY_VIEW[folder.category];
-  const papers = [0, 1, 2].map((i) => folder.thumbnails[i] ?? null);
+  // El tercer papel (el de más al frente, que tapa a los otros dos) va último en el arreglo: si
+  // faltan miniaturas, el hueco debe quedar atrás, no tapando a la que sí existe.
+  const shown = folder.thumbnails.slice(0, 3);
+  const papers = [...Array<null>(Math.max(0, 3 - shown.length)).fill(null), ...shown];
 
   return (
     <Link to={`/library/${view.slug}`} className={`ng-folder ${view.cssClass}`}>
