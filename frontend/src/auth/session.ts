@@ -8,6 +8,7 @@
 
 import { fetchOrNetworkError } from "../api/network-error.ts";
 import { config } from "../config.ts";
+import { clearCachedItems } from "../state/library-offline-cache.ts";
 import { codeChallenge, randomUrlSafe } from "./pkce.ts";
 import { clearRefreshToken, loadRefreshToken, saveRefreshToken } from "./refresh-store.ts";
 
@@ -135,6 +136,7 @@ export function refreshAccessToken(): Promise<string> {
       const res = await tokenRequest({ grant_type: "refresh_token", refresh_token: refreshToken });
       if (res.status === 400 || res.status === 401) {
         await clearRefreshToken();
+        await clearCachedItems(); // Cognito rechazó la sesión de verdad: no dejar su biblioteca para la próxima cuenta
         accessToken = null;
         throw new SessionExpiredError();
       }
@@ -166,6 +168,7 @@ export async function logout(): Promise<void> {
   const refreshToken = await loadRefreshToken();
   accessToken = null;
   await clearRefreshToken();
+  await clearCachedItems(); // la próxima cuenta en este dispositivo no hereda esta biblioteca
   if (refreshToken) {
     // Si falla (sin red), el token igual queda borrado del dispositivo.
     await fetch(`${config.cognitoDomain}/oauth2/revoke`, {
