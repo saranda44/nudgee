@@ -9,7 +9,9 @@ import { FolderPage } from "./pages/FolderPage.tsx";
 import { LibraryPage } from "./pages/LibraryPage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { ItemPage } from "./pages/ItemPage.tsx";
-import { ItemEditPage, NotFoundPage, RemindersPage } from "./pages/placeholders.tsx";
+import { ItemEditPage } from "./pages/ItemEditPage.tsx";
+import { RemindersPage } from "./pages/RemindersPage.tsx";
+import { NotFoundPage } from "./pages/placeholders.tsx";
 
 const router = createBrowserRouter([
   {
