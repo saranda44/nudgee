@@ -83,3 +83,17 @@ export async function patchChecklist(
 export async function openNotification(slotKey: string): Promise<void> {
   await api(`/v1/notifications/${encodeURIComponent(slotKey)}/open`, { method: "POST" }).catch(() => undefined);
 }
+
+/** E-08: editar ítem con If-Match. */
+export async function patchItem(videoId: string, body: unknown, version: number): Promise<Item> {
+  return (
+    await api<Item>(`/v1/items/${encodeURIComponent(videoId)}`, { method: "PATCH", ifMatch: version, body })
+  ).data;
+}
+
+/** E-09: enviar formulario de NEEDS_INPUT. */
+export async function submitForm(videoId: string, body: unknown): Promise<Item> {
+  return (
+    await api<Item>(`/v1/items/${encodeURIComponent(videoId)}/submit-form`, { method: "POST", body })
+  ).data;
+}

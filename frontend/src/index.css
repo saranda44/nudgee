@@ -134,12 +134,83 @@ a { color: var(--accent); }
   padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface); cursor: pointer;
 }
 .app-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--accent); }
-.app-check:has(input:checked) .app-check__body > :first-child { text-decoration: line-through; color: var(--ink-muted); }
+.app-check:has(input:checked) .app-check__label,
+.app-check:has(input:checked) .app-entry-row__text { text-decoration: line-through; color: var(--ink-muted); }
+/* Hecho (P-03): ya no se "tacha" — el ítem completo ya está hecho, no a medias. El check se ve
+   en success (verde) en vez del accent normal, para que combine con la tarjeta de "La hiciste". */
+.is-done .app-check:has(input:checked) .app-check__label,
+.is-done .app-check:has(input:checked) .app-entry-row__text { text-decoration: none; color: var(--ink); }
+.is-done .app-check input { accent-color: var(--success); }
 .app-check:has(input:disabled) { cursor: default; }
-.app-check__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.app-steps { margin: 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-2); }
+.app-check__body { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+/* Pasos: medallón numerado en vez de marcador nativo de <ol> */
+.app-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.app-steps li { counter-increment: step; display: flex; gap: var(--space-3); align-items: flex-start; }
+.app-steps li::before {
+  content: counter(step); flex: none; width: 24px; height: 24px; border-radius: var(--radius-pill);
+  background: var(--surface-muted); color: var(--ink); font: 700 13px/24px var(--font-sans); text-align: center;
+}
 .app-extlink {
   display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min);
   color: var(--accent); font: 600 14px/20px var(--font-sans); text-decoration: none;
 }
-.app-check .app-extlink { min-height: 32px; }
+/* Fila de una entrada de lista (película, lugar, canción…): texto a la izquierda, link a la derecha */
+.app-entry-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; }
+.app-entry-row__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.app-entry-link {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 var(--space-3);
+  border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink);
+  font: 600 13px/18px var(--font-sans); text-decoration: none;
+}
+/* Barra de progreso de "Tu lista" (películas, libros, música…) */
+.app-progressbar { appearance: none; -webkit-appearance: none; width: 100%; height: 6px; border: none; border-radius: var(--radius-pill); background: var(--surface-muted); overflow: hidden; }
+.app-progressbar::-webkit-progress-bar { background: var(--surface-muted); border-radius: var(--radius-pill); }
+.app-progressbar::-webkit-progress-value { background: var(--accent); border-radius: var(--radius-pill); }
+.app-progressbar::-moz-progress-bar { background: var(--accent); border-radius: var(--radius-pill); }
+
+/* P-04 Formulario: etiqueta en negrita + sufijo "(opcional)" más tenue */
+.app-field-label { font-weight: 700; color: var(--ink); }
+.app-field-label__hint { font-weight: 500; color: var(--ink-muted); }
+/* P-04: campos claros sobre el fondo (muted) de la página/tarjeta, con borde en vez de relleno */
+.app-field-input { background: var(--surface); border: 1px solid var(--line); }
+.app-field-textarea { width: 100%; resize: vertical; padding-top: var(--space-3); padding-bottom: var(--space-3); font: 400 15px/22px var(--font-sans); }
+
+/* P-04 Formulario: fila de lista editable (ingredientes, pasos…) */
+.app-field-row { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-2); }
+.app-field-row .ng-input { flex: 1; min-width: 0; }
+
+/* P-04: dropdown propio (el panel de opciones de un <select> nativo no se puede estilizar) */
+.app-combobox { position: relative; }
+.app-combobox__trigger {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  text-align: left; cursor: pointer;
+}
+.app-combobox__trigger svg { color: var(--ink-muted); flex: none; }
+.app-combobox__placeholder { color: var(--ink-muted); }
+.app-combobox__list {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; margin: 0; padding: var(--space-2);
+  list-style: none; background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow-float);
+  border: 1px solid var(--line); max-height: 280px; overflow-y: auto;
+}
+.app-combobox__list li {
+  display: flex; align-items: center; min-height: var(--tap-min); padding: 0 var(--space-4);
+  border-radius: var(--radius-sm); font: 400 15px/22px var(--font-sans); color: var(--ink); cursor: pointer;
+}
+.app-combobox__list li.is-highlighted { background: var(--surface-muted); }
+.app-combobox__list li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.app-combobox__list li[aria-selected="true"].is-highlighted { background: var(--accent-pressed); }
+
+/* P-04: agregar una entrada a una lista editable — distinto de ng-input (lo que agrega, no un campo más) */
+.app-btn-add {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  width: 100%; min-height: var(--tap-min); padding: 0 var(--space-5); box-sizing: border-box;
+  border-radius: var(--radius-pill); border: 0;
+  background: var(--surface-muted); color: var(--ink); font: 600 15px/22px var(--font-sans); cursor: pointer;
+}
+.app-btn-add:hover, .app-btn-add:active { background: var(--line); }
+
+/* P-04: tarjeta de una entrada con varios campos (películas, lugares, música…); fondo muted para
+   que los campos claros (.app-field-input) de adentro resalten, sin sombra de tarjeta flotante. */
+.app-entry-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-lg); background: var(--surface-muted); }
+.app-entry-card__header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.app-entry-card__index { font: 700 12px/18px var(--font-sans); color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.02em; }
