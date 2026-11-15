@@ -61,6 +61,13 @@ export function toItemDto(item: Item): Record<string, unknown> {
   const dto: Record<string, unknown> = {};
   for (const field of PUBLIC_FIELDS) dto[field] = item[field] ?? null;
 
+  // expiresAt vive en DynamoDB como epoch en segundos (lo exige el TTL); en la API siempre va
+  // ISO-8601, como el resto de las fechas (Contratos §2.3). Sin esto, `new Date(epoch)` del
+  // cliente lo lee como milisegundos y calcula una fecha de 1970 ("Se eliminará en 0 días").
+  if (typeof item.expiresAt === "number") {
+    dto.expiresAt = new Date(item.expiresAt * 1000).toISOString();
+  }
+
   const checklist = (item.checklist as Record<string, unknown> | undefined) ?? {};
   const snoozeCount = typeof item.snoozeCount === "number" ? item.snoozeCount : 0;
   const listable = CHECKLISTABLE_CATEGORIES.includes(String(item.category));

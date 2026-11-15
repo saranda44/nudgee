@@ -62,4 +62,14 @@ describe("toItemDto", () => {
     assert.equal(res.headers?.ETag, '"4"');
     assert.equal(JSON.parse(res.body as string).userId, undefined);
   });
+
+  it("expiresAt sale en ISO-8601, aunque en DynamoDB sea epoch en segundos (Contratos §2.3)", () => {
+    const epochSeconds = 1799990400; // 2027-01-15T00:00:00.000Z
+    const dto = toItemDto({ ...raw, status: "DISCARDED", expiresAt: epochSeconds });
+    assert.equal(dto.expiresAt, new Date(epochSeconds * 1000).toISOString());
+  });
+
+  it("expiresAt ausente sigue saliendo null", () => {
+    assert.equal(toItemDto({ ...raw, expiresAt: undefined }).expiresAt, null);
+  });
 });
