@@ -125,6 +125,24 @@ a { color: var(--accent); }
 }
 .app-iconbtn:disabled { opacity: .35; cursor: default; }
 
+/* P-04 NEEDS_INPUT (E-09): encabezado de hoja con X y título centrado, distinto del de editar
+   (flecha + título grande), porque aquí no se llegó desde una tarjeta sino desde "en proceso". */
+.app-header--sheet { display: grid; grid-template-columns: var(--tap-min) 1fr var(--tap-min); align-items: center; }
+.app-header__title { grid-column: 2; text-align: center; font: 700 17px/24px var(--font-sans); margin: 0; }
+
+/* Aviso de por qué hace falta completar datos a mano, y acceso al video original. */
+.app-info-note { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--accent-soft); }
+.app-info-note svg { flex: none; margin-top: 2px; color: var(--accent); }
+.app-info-note p { margin: 0; color: var(--accent); }
+.app-info-note__link { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font: 600 14px/20px var(--font-sans); text-decoration: none; }
+
+/* Descartar el video sin guardar nada, sin salir del flujo de completar datos. */
+.app-discard-link {
+  align-self: center; min-height: var(--tap-min); padding: 0 var(--space-3);
+  background: transparent; border: 0; color: var(--danger); font: 600 14px/20px var(--font-sans); cursor: pointer;
+}
+.app-discard-link:disabled { opacity: .5; cursor: default; }
+
 /* Estados vacíos */
 .app-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: var(--space-8) var(--space-4); text-align: center; }
 .app-empty__art { width: 160px; height: auto; }
