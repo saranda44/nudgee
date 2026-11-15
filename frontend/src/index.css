@@ -109,9 +109,11 @@ a { color: var(--accent); }
   display: inline-grid; place-items: center; width: var(--tap-min); height: var(--tap-min);
   border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--ink); cursor: pointer;
 }
+.app-iconbtn:disabled { opacity: .35; cursor: default; }
 
 /* Estados vacíos */
 .app-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); padding: var(--space-8) var(--space-4); text-align: center; }
+.app-empty__art { width: 160px; height: auto; }
 
 /* Esqueleto de carpeta (primera carga de P-02) */
 .app-folder-skel { aspect-ratio: 6 / 5; border-radius: var(--radius-lg); background: var(--surface-muted); }
