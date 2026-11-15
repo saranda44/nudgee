@@ -4,11 +4,11 @@
  * cambiar de categoría borra los campos específicos; "¿Descartar cambios?" al salir sin guardar.
  */
 
-import { ArrowLeft } from "@phosphor-icons/react";
+import { ArrowLeft, Info, X, YoutubeLogo } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
-import { getItem, patchItem, submitForm } from "../api/items.ts";
+import { getItem, patchItem, restoreItem, runAction, submitForm } from "../api/items.ts";
 import {
   ArrayField,
   DateField,
@@ -24,6 +24,7 @@ import { Dialog } from "../components/Dialog.tsx";
 import { useToast } from "../components/Toast.tsx";
 import { CATEGORIES, type Category, type Item } from "../domain/item.ts";
 import { CATEGORY_VIEW } from "../domain/categories.ts";
+import { youtubeShort } from "../domain/links.ts";
 import { errorMessage, t } from "../i18n/index.ts";
 import type { MessageKey } from "../i18n/es-MX.ts";
 import { useLibrary } from "../state/library.tsx";
@@ -219,6 +220,7 @@ export function ItemEditPage() {
   const [initial, setInitial] = useState<FormState | null>(null);
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const [saving, setSaving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => {
@@ -315,7 +317,7 @@ export function ItemEditPage() {
       const needsInput = item.status === "NEEDS_INPUT";
       const updated = needsInput ? await submitForm(videoId, toBody(form)) : await patchItem(videoId, toBody(form), item.version);
       library.upsert(updated);
-      toast({ message: needsInput ? t("edit.submitted") : t("edit.saved") });
+      toast({ message: t("edit.saved") });
       // navigate(-1), no push: solo se entra aquí desde la tarjeta (ItemPage) con un <Link>, así
       // que volver un paso aterriza ahí mismo, ya con los datos frescos (library es reactiva);
       // empujar una ruta nueva dejaría este formulario atrapado en el historial (haría falta
@@ -336,6 +338,33 @@ export function ItemEditPage() {
   };
 
   const goBack = () => (hasChanges ? setConfirmDiscard(true) : navigate(-1));
+
+  /** E-14 desde el formulario de NEEDS_INPUT: igual que en la tarjeta (sin diálogo, con deshacer),
+   *  pero aquí sí nos salimos — el formulario ya no aplica una vez descartado. */
+  const discardVideo = async () => {
+    if (!item || discarding) return;
+    setDiscarding(true);
+    try {
+      const updated = await runAction(videoId, "discard", item.version);
+      library.upsert(updated);
+      toast({
+        message: t("item.discardedToast"),
+        action: {
+          label: t("common.undo"),
+          onClick: () => {
+            void restoreItem(videoId, updated.version)
+              .then((u) => library.upsert(u))
+              .catch((e) => toast({ message: errorMessage(e) }));
+          },
+        },
+      });
+      navigate(-1);
+    } catch (e) {
+      toast({ message: errorMessage(e) });
+    } finally {
+      setDiscarding(false);
+    }
+  };
 
   if (!VIDEO_ID.test(videoId)) return <NotFoundPage />;
 
@@ -381,10 +410,36 @@ export function ItemEditPage() {
     );
   }
 
+  const needsInput = item.status === "NEEDS_INPUT";
+
   return (
     <main className="app-page">
-      {header}
-      <h1 className="t-display">{item.title || t("item.untitled")}</h1>
+      {needsInput ? (
+        <div className="app-header app-header--sheet">
+          <button type="button" className="app-iconbtn" onClick={goBack} aria-label={t("common.close")}>
+            <X size={22} weight="bold" aria-hidden />
+          </button>
+          <h1 className="app-header__title">{t("edit.needsInputHeader")}</h1>
+          <span className="app-iconbtn" aria-hidden />
+        </div>
+      ) : (
+        header
+      )}
+
+      {needsInput && (
+        <>
+          <div className="app-info-note" role="note">
+            <Info size={20} weight="bold" aria-hidden />
+            <p className="t-caption">{t("edit.needsInputBanner")}</p>
+          </div>
+          <a className="app-info-note__link" href={youtubeShort(item.videoId)} target="_blank" rel="noopener noreferrer">
+            <YoutubeLogo size={16} weight="bold" aria-hidden />
+            {t("edit.needsInputYoutubeLink")}
+          </a>
+        </>
+      )}
+
+      {!needsInput && <h1 className="t-display">{item.title || t("item.untitled")}</h1>}
 
       <form ref={formRef} className="ng-col" onSubmit={onSubmit} noValidate>
         <SelectField
@@ -547,9 +602,15 @@ export function ItemEditPage() {
         )}
 
         <button type="submit" className="ng-btn ng-btn--primary ng-btn--block" aria-busy={saving} disabled={saving}>
-          {item.status === "NEEDS_INPUT" ? t("edit.submit") : t("edit.save")}
+          {t("edit.save")}
         </button>
       </form>
+
+      {needsInput && (
+        <button type="button" className="app-discard-link" onClick={() => void discardVideo()} disabled={discarding} aria-busy={discarding}>
+          {t("edit.discardVideo")}
+        </button>
+      )}
 
       <Dialog open={confirmDiscard} title={t("edit.discardTitle")} onClose={() => setConfirmDiscard(false)}>
         <div className="ng-col">
