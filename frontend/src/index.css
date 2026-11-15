@@ -11,6 +11,7 @@
 html { -webkit-text-size-adjust: 100%; }
 body { min-height: 100dvh; }
 button, input, textarea, select { font: inherit; color: inherit; }
+select { cursor: pointer; }
 h1, h2, h3, p { margin: 0; }
 a { color: var(--accent); }
 
@@ -115,14 +116,102 @@ a { color: var(--accent); }
 .app-sheet-dialog .ng-sheet { padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom)); }
 .app-sheet-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
+/* P-03 Tarjeta: aviso de estado arriba de todo (Hecho/Descartado/Dormido), con sus acciones ahí mismo */
+.app-status-card {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card);
+}
+.app-status-card__header { display: flex; align-items: center; gap: var(--space-3); }
+.app-status-card__actions { display: flex; gap: var(--space-2); }
+.app-status-card__actions .ng-btn--primary { flex: 1; }
+
 /* P-03 Tarjeta */
-.app-hero { display: flex; justify-content: center; }
-.app-hero .ng-thumb, .app-hero-card .ng-thumb { width: min(60%, 260px); margin: 0 auto; }
+.app-hero-art {
+  position: relative; width: 100%; aspect-ratio: 4 / 3; border-radius: var(--radius-lg);
+  background: var(--cat-soft); color: var(--cat); overflow: hidden; display: grid; place-items: center;
+}
+.app-hero-art img { width: 100%; height: 100%; object-fit: cover; }
+.app-hero-art.is-processing { background: var(--surface-muted); color: var(--ink-muted); }
+.app-hero-art.is-processing::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(247,246,242,0.35) 50%, transparent 70%);
+  animation: ng-shimmer 1.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) { .app-hero-art.is-processing::after { animation: none; } }
+.app-hero-art__play {
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 1;
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 var(--space-4);
+  border-radius: var(--radius-pill); background: var(--surface); color: var(--ink);
+  font: 600 13px/18px var(--font-sans); text-decoration: none; box-shadow: var(--shadow-card);
+}
 .app-hero-card { box-shadow: none; background: transparent; align-items: center; }
+.app-hero-card .ng-thumb { width: min(60%, 260px); margin: 0 auto; }
 .app-hero-card .ng-skel { width: 60%; }
 .app-section { display: flex; flex-direction: column; gap: var(--space-2); }
-.app-actions, .app-links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* P-06: encabezado de grupo por día ("HOY", "AYER"…) */
+.app-day-group { font: 700 12px/18px var(--font-sans); color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.02em; margin: 0; }
+/* P-06: ícono de categoría de ng-reminder (el componente del sistema no trae uno propio) */
+.ng-reminder__icon { width: 40px; height: 40px; border-radius: var(--radius-pill); background: var(--cat-soft); color: var(--cat); display: grid; place-items: center; flex: none; }
+/* is-missing: P-06, un ítem borrado. is-neutral: P-05, un ícono de ajuste sin categoría. Mismo gris. */
+.ng-reminder__icon.is-missing, .ng-reminder__icon.is-neutral { background: var(--surface-muted); color: var(--ink-muted); }
+.ng-reminder__icon.is-success { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--success); }
+
+/* Insignia arriba del título de un Dialog (p. ej. confirmar "Eliminar para siempre") */
+.app-dialog-icon { width: 44px; height: 44px; border-radius: var(--radius-pill); display: grid; place-items: center; }
+.app-dialog-icon.is-danger { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+
+/* Botón de confirmación destructiva: a diferencia de ng-btn--danger (texto rojo sin relleno),
+   este lleva fondo rojo sólido, para la acción "sin vuelta atrás" de un diálogo de confirmación. */
+.ng-btn--danger-solid { background: var(--danger); color: var(--on-inverse); }
+.ng-btn--danger-solid:active { filter: brightness(0.9); }
+
+/* P-05: avatar con iniciales */
+.app-profile { display: flex; align-items: center; gap: var(--space-3); }
+.app-profile__text { display: flex; flex-direction: column; gap: 2px; }
+.app-avatar {
+  width: 48px; height: 48px; border-radius: var(--radius-pill); background: var(--inverse); color: var(--on-inverse);
+  display: grid; place-items: center; font: 700 16px/20px var(--font-sans); flex: none;
+}
+.app-profile__name {
+  display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 0; padding: 0;
+  min-height: var(--tap-min); cursor: pointer; color: inherit; text-align: left;
+}
+.app-profile__name svg { color: var(--ink-muted); flex: none; }
+.app-profile__edit { display: flex; align-items: center; gap: var(--space-2); }
+.app-profile__edit .ng-input { height: 40px; flex: 1; min-width: 0; }
+
+.app-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+/* Acciones de P-03: principal a lo ancho (hijo directo .ng-btn), filas debajo. */
+.app-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.app-actions > .ng-btn { width: 100%; }
+.app-actions-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); }
+.app-actions-row--even > * { flex: 1; }
+.app-links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .app-options { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Opción de radio dentro de un overlay (O-02 Posponer): selecciona, no ejecuta de una vez */
+.app-radio-option {
+  display: flex; align-items: center; gap: var(--space-3); min-height: var(--tap-min);
+  padding: var(--space-3) var(--space-4); border-radius: var(--radius-md);
+  background: var(--surface-muted); border: 2px solid transparent; cursor: pointer;
+}
+.app-radio-option.is-selected { background: var(--accent-soft); border-color: var(--accent); }
+.app-radio-option input[type="radio"] { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
+.app-radio-option__body { display: flex; flex-direction: column; gap: 2px; }
+
+/* Calendario de un mes (O-02 Reprogramar): la grilla de <input type="date"> tampoco se puede
+   estilizar (mismo problema que el <select> nativo), así que es una grilla propia. */
+.app-calendar { display: flex; flex-direction: column; gap: var(--space-3); }
+.app-calendar__head { display: flex; align-items: center; justify-content: space-between; }
+.app-calendar__weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font: 600 12px/16px var(--font-sans); color: var(--ink-muted); }
+.app-calendar__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.app-calendar__day {
+  aspect-ratio: 1; min-height: 36px; border: 1.5px solid transparent; border-radius: var(--radius-pill);
+  background: transparent; color: var(--ink); font: 600 14px/20px var(--font-sans); cursor: pointer;
+  display: grid; place-items: center;
+}
+.app-calendar__day:disabled { color: var(--ink-muted); opacity: .4; cursor: default; }
+.app-calendar__day.is-today { border-color: var(--line); }
+.app-calendar__day.is-selected { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .app-suggestion {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);
   padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface);

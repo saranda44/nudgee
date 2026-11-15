@@ -12,6 +12,24 @@ export function t(key: MessageKey, params: Record<string, string | number> = {})
   return messages[key].replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? `{${name}}`));
 }
 
+/**
+ * Texto de un recordatorio (P-06) a partir de `messageKey`/`messageParams` (NTF-06,
+ * backend/dispatcher/messages.ts): el backend manda la llave y los datos, nunca el texto —
+ * así sobrevive al borrado del ítem y respeta i18n. `title` es el snapshot guardado en la
+ * notificación, no el messageParams (que solo trae lo numérico: remaining/total, eventDate).
+ */
+export function reminderMessage(messageKey: string, messageParams: Record<string, string | number>, title: string): string {
+  const key = messageKey as MessageKey;
+  if (!(key in messages)) return title;
+  if (key === "reminder.EVENT" && typeof messageParams.eventDate === "string") {
+    const weekday = new Intl.DateTimeFormat("es-MX", { weekday: "long", timeZone: "UTC" }).format(
+      new Date(`${messageParams.eventDate}T00:00:00Z`),
+    );
+    return t(key, { title, weekday });
+  }
+  return t(key, { ...messageParams, title });
+}
+
 /** Mensaje del catálogo (Contratos §2.5) para cualquier error de la API o de red. */
 export function errorMessage(error: unknown): string {
   if (error instanceof NetworkError) return t("error.NETWORK");

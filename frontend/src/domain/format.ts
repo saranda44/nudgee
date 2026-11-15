@@ -24,3 +24,36 @@ export function relativeTime(iso: string, now = Date.now()): string {
 export function daysUntil(iso: string, now = Date.now()): number {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - now) / 86_400_000));
 }
+
+const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Agrupa por día de calendario local (no por ventanas de 24 h), para las secciones de P-06. */
+export function dayBucket(iso: string, now = new Date()): "today" | "yesterday" | "week" | "earlier" {
+  const day = localDay(new Date(iso));
+  if (day === localDay(now)) return "today";
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (day === localDay(yesterday)) return "yesterday";
+  const weekAgo = new Date(now);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  return day > localDay(weekAgo) ? "week" : "earlier";
+}
+
+/** "lun", "mar"… sin el punto que agrega Intl en es-MX. */
+export function shortWeekday(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-MX", { weekday: "short" }).replace(/[.,]/g, "").trim();
+}
+
+/** "9:00", "14:00": siempre 24 h, sin cero a la izquierda en la hora. */
+export function shortTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit", hour12: false });
+}
+
+/** "vie 6 nov": vista corta para Posponer, Reprogramar, "La hiciste el…" y la meta de EVENT. */
+export function formatShortDate(d: Date): string {
+  return d
+    .toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })
+    .replace(/[.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
