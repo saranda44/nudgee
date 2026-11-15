@@ -103,6 +103,11 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
   if (!res.ok) {
     throw new ApiError(res.status, (json ?? {}) as Record<string, unknown>, res.headers.get("Retry-After"));
   }
+  // Un 2xx con cuerpo que no es JSON no viene de la API (p. ej. el index.html de la SPA si el
+  // proxy o el behavior /v1/* de CloudFront no enrutan): error explícito, nunca `data` undefined.
+  if (text && json === undefined) {
+    throw new ApiError(502, { code: "INTERNAL_ERROR" }, null);
+  }
   return {
     status: res.status,
     data: json as T,
