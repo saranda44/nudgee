@@ -16,20 +16,19 @@ export function LoginPage() {
   };
 
   return (
-    <main className="app-center">
-      <div className="app-stack">
-        <p className="t-headline app-muted">{t("app.name")}</p>
-        <h1 className="t-display">{t("login.title")}</h1>
-        <p className="t-body app-muted">{t("login.subtitle")}</p>
-        {notice && (
-          <p className="t-body-strong" role="alert">
-            {notice}
-          </p>
-        )}
-        <button type="button" className="ng-btn ng-btn--primary ng-btn--block" onClick={login} aria-busy={busy}>
-          {t("login.cta")}
-        </button>
-      </div>
+    <main className="app-login">
+      <img src="/logo-png-transparente.png" alt="" className="app-login__art" />
+      <h1 className="app-login__title">{t("app.name")}</h1>
+      <p className="app-login__subtitle app-muted">{t("login.subtitle")}</p>
+      {notice && (
+        <p className="t-body-strong app-error" role="alert">
+          {notice}
+        </p>
+      )}
+      <div className="app-login__spacer" aria-hidden />
+      <button type="button" className="ng-btn ng-btn--secondary ng-btn--block app-login__cta" onClick={login} aria-busy={busy}>
+        {t("login.cta")}
+      </button>
     </main>
   );
 }

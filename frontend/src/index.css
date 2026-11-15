@@ -49,6 +49,20 @@ a { color: var(--accent); }
 .app-muted { color: var(--ink-muted); }
 .app-error { color: var(--danger); }
 
+/* P-01 Login: logo, título y subtítulo alineados a la izquierda, con aire arriba antes de
+   empezar; el botón se empuja hasta abajo con el separador flexible (no centrado como app-center,
+   que centra todo verticalmente). */
+.app-login {
+  min-height: 100dvh; max-width: var(--content-max); margin: 0 auto;
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-4);
+  padding: calc(var(--space-8) * 2 + var(--space-2)) var(--space-6) calc(var(--space-8) + env(safe-area-inset-bottom));
+}
+.app-login__art { width: 70%; max-width: 300px; height: auto; margin-bottom: var(--space-2); }
+.app-login__title { font: 800 48px/52px var(--font-sans); letter-spacing: -0.02em; margin: 0; }
+.app-login__subtitle { font: 400 20px/28px var(--font-sans); margin: 0; }
+.app-login__spacer { flex: 1; min-height: var(--space-6); }
+.app-login__cta { min-height: 56px; font-size: 16px; }
+
 .app-offline {
   position: sticky;
   top: 0;
