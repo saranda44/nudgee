@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 600" width="620" height="600">
+  <!-- Logo Nudgee: tarjetas apiladas, punto verde y píldora de acento -->
+  <rect x="48" y="500" width="224" height="72" rx="36" ry="36" fill="#E6EBFD"/>
+  <circle cx="564" cy="44" r="44" fill="#2E863E"/>
+  <rect x="-55" y="-105" width="240" height="340" rx="42" ry="42" fill="#D94A0F" transform="translate(178 280) rotate(-10)"/>
+  <rect x="-135" y="-180" width="270" height="360" rx="42" ry="42" fill="#151513" transform="translate(335 240) rotate(3)"/>
+  <rect x="-127" y="-178" width="255" height="355" rx="45" ry="45" fill="#2151FF" transform="translate(449 274) rotate(15)"/>
+</svg>
