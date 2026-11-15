@@ -9,6 +9,9 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <!-- iOS no sigue el manifest para el ícono/modo standalone: hace falta esto aparte. -->
     <link rel="apple-touch-icon" href="/icons/icon-512-maskable.png" />
+    <!-- Safari/iOS solo entiende la etiqueta "apple-"; Chrome/Edge ya la marcan deprecada y piden
+         la genérica — se dejan las dos, cada navegador usa la que reconoce. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Nudgee" />
