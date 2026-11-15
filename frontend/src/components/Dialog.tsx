@@ -10,9 +10,11 @@ interface Props {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** Insignia opcional arriba del título (p. ej. para confirmar una acción destructiva). */
+  icon?: ReactNode;
 }
 
-export function Dialog({ open, title, onClose, children }: Props) {
+export function Dialog({ open, title, onClose, children, icon }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -34,6 +36,7 @@ export function Dialog({ open, title, onClose, children }: Props) {
       {open && (
         <div className="ng-sheet">
           <div className="ng-sheet__handle" aria-hidden />
+          {icon}
           <h2 className="ng-sheet__title" id={titleId}>
             {title}
           </h2>
