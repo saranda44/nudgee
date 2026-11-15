@@ -3,7 +3,7 @@
  * proceso (UX-09) y carpetas (UX-08). El banner de push (US-35) llega en la etapa 6.
  */
 
-import { MagnifyingGlass } from "@phosphor-icons/react";
+import { MagnifyingGlass, Plus } from "@phosphor-icons/react";
 import { useSearchParams } from "react-router";
 import { CategoryFolder } from "../components/CategoryFolder.tsx";
 import { ItemGrid } from "../components/ItemCard.tsx";
@@ -55,8 +55,11 @@ export function LibraryPage() {
   } else if (items.length === 0) {
     content = (
       <div className="app-empty">
+        <img src="/Biblioteca-vacia-selection.png" alt="" className="app-empty__art" />
+        <h2 className="t-title">{t("library.emptyTitle")}</h2>
         <p className="t-body app-muted">{t("library.empty")}</p>
         <button type="button" className="ng-btn ng-btn--primary" onClick={openSave}>
+          <Plus size={18} weight="bold" aria-hidden />
           {t("library.emptyCta")}
         </button>
       </div>
