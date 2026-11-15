@@ -59,3 +59,15 @@ resource "aws_cognito_user_pool_client" "pwa" {
 
   prevent_user_existence_errors = "ENABLED"
 }
+
+# Estilo del Hosted UI con los colores/tipografía de Nudgee (hosted-ui.css). "ALL" = todos los
+# App Clients del pool; depende del dominio porque el Hosted UI no existe sin él.
+resource "aws_cognito_user_pool_ui_customization" "all_clients" {
+  client_id    = "ALL"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  css        = file("${path.module}/hosted-ui.css")
+  image_file = filebase64("${path.module}/../../../frontend/public/logo-png-transparente.png")
+
+  depends_on = [aws_cognito_user_pool_domain.main]
+}
