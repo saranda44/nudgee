@@ -6,11 +6,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import { NetworkError } from "../api/client.ts";
 import { getClientConfig, listAllItems, pollItems } from "../api/items.ts";
 import { useToast } from "../components/Toast.tsx";
 import { CATEGORY_VIEW } from "../domain/categories.ts";
 import type { ClientConfig, Item } from "../domain/item.ts";
 import { errorMessage, t } from "../i18n/index.ts";
+import { loadCachedItems, saveCachedItems } from "./library-offline-cache.ts";
 
 interface LibraryState {
   items: Item[];
@@ -56,9 +58,27 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         setStatus("ready");
         setError(null);
         pollUntil.current = Date.now() + DEFAULT_POLLING.pollingMaxDurationMs;
+        void saveCachedItems(items); // NFR-12: para poder abrir sin red la próxima vez
       },
       (e: unknown) => {
         if ((e as Error).name === "AbortError") return;
+        // NFR-12: sin red *de verdad* (navigator.onLine, no solo "este fetch falló") y hay una
+        // biblioteca guardada de antes → se muestra esa en vez de un error. Si el navegador dice
+        // que sí hay conexión, un NetworkError aislado (DNS roto, Cognito caído, etc.) es un
+        // problema real que hay que mostrar, no algo que tapar con datos viejos de otra cuenta.
+        if (e instanceof NetworkError && !navigator.onLine) {
+          loadCachedItems().then((cached) => {
+            if (!cached) {
+              setError(errorMessage(e));
+              setStatus("error");
+              return;
+            }
+            setById(new Map(cached.map((i) => [i.videoId, i])));
+            setStatus("ready");
+            setError(null);
+          });
+          return;
+        }
         setError(errorMessage(e));
         setStatus("error");
       },
