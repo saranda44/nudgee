@@ -4,7 +4,9 @@ import { useSyncExternalStore } from "react";
 import { Outlet } from "react-router";
 import { t } from "../i18n/index.ts";
 import { LibraryProvider } from "../state/library.tsx";
+import { NotificationsProvider, useNotifications } from "../state/notifications.tsx";
 import { BottomNav } from "./BottomNav.tsx";
+import { PushPermissionBanner } from "./PushPermissionBanner.tsx";
 import { SaveSheetProvider, useOpenSaveSheet } from "./SaveSheet.tsx";
 import { ToastProvider } from "./Toast.tsx";
 
@@ -31,24 +33,27 @@ export function RootLayout() {
   );
 }
 
-/** Rutas con sesión: biblioteca en memoria y sheet O-05 disponibles en todas. */
+/** Rutas con sesión: biblioteca en memoria, sheet O-05 y contador de recordatorios disponibles en todas. */
 export function SessionLayout() {
   return (
     <LibraryProvider>
-      <SaveSheetProvider>
-        <Outlet />
-      </SaveSheetProvider>
+      <NotificationsProvider>
+        <SaveSheetProvider>
+          <Outlet />
+        </SaveSheetProvider>
+      </NotificationsProvider>
     </LibraryProvider>
   );
 }
 
 export function NavLayout() {
   const openSave = useOpenSaveSheet();
+  const { unreadCount } = useNotifications();
   return (
     <>
+      <PushPermissionBanner />
       <Outlet />
-      {/* El contador de no leídos (US-52) llega en la etapa 6. */}
-      <BottomNav unreadCount={0} onSave={openSave} />
+      <BottomNav unreadCount={unreadCount} onSave={openSave} />
     </>
   );
 }
