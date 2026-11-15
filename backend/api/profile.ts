@@ -17,6 +17,8 @@ const SCHEDULER_ROLE_ARN = process.env.SCHEDULER_ROLE_ARN!;
 // Locales soportados (hoy solo es-MX, pero extensible)
 const SUPPORTED_LOCALES = ["es-MX"];
 
+const NAME_LIMITS = { minLength: 1, maxLength: 100 };
+
 interface UserProfile {
   userId: string;
   email: string;
@@ -163,7 +165,7 @@ export const profileRoutes: Route[] = [
       const userId = requireUserId(ctx);
 
       const body = readJsonBody(ctx);
-      const { timezone, locale } = body as { timezone?: unknown; locale?: unknown };
+      const { timezone, locale, name } = body as { timezone?: unknown; locale?: unknown; name?: unknown };
 
       const errors: Array<{ pointer: string; code: string; message: string }> = [];
 
@@ -178,6 +180,20 @@ export const profileRoutes: Route[] = [
         errors.push({ pointer: "/locale", code: "INVALID_TYPE", message: "must be a string" });
       } else if (locale && !validateLocale(locale)) {
         errors.push({ pointer: "/locale", code: "INVALID_LOCALE", message: "must be one of es-MX" });
+      }
+
+      const trimmedName = typeof name === "string" ? name.trim() : undefined;
+      if (name !== undefined && typeof name !== "string") {
+        errors.push({ pointer: "/name", code: "INVALID_TYPE", message: "must be a string" });
+      } else if (
+        trimmedName !== undefined &&
+        (trimmedName.length < NAME_LIMITS.minLength || trimmedName.length > NAME_LIMITS.maxLength)
+      ) {
+        errors.push({
+          pointer: "/name",
+          code: "INVALID_LENGTH",
+          message: `must be between ${NAME_LIMITS.minLength} and ${NAME_LIMITS.maxLength} characters`,
+        });
       }
 
       if (errors.length > 0) {
@@ -198,7 +214,7 @@ export const profileRoutes: Route[] = [
       }
 
       // Si no hay nada que actualizar, devuelve el perfil actual
-      if (!timezone && !locale) {
+      if (!timezone && !locale && !trimmedName) {
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json" },
@@ -207,7 +223,7 @@ export const profileRoutes: Route[] = [
       }
 
       // Preparar updates
-      // `timezone` es palabra reservada de DynamoDB: todos los atributos van con alias.
+      // `timezone` y `name` son palabras reservadas de DynamoDB: todos los atributos van con alias.
       const updates: string[] = [];
       const values: Record<string, unknown> = {};
       const names: Record<string, string> = {};
@@ -221,6 +237,11 @@ export const profileRoutes: Route[] = [
         updates.push("#locale = :loc");
         names["#locale"] = "locale";
         values[":loc"] = locale;
+      }
+      if (trimmedName) {
+        updates.push("#name = :name");
+        names["#name"] = "name";
+        values[":name"] = trimmedName;
       }
 
       // Si scheduleState = NONE, intentar crear el schedule
