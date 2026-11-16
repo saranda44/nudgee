@@ -30,9 +30,10 @@ module "cognito" {
   aws_region           = data.aws_region.current.name
 
   # Rutas de Diseño UX §1.5: P-00 /auth/callback y P-01 /login. Local (Vite) y el dominio real
-  # (Cloudflare) conviven en la misma lista.
-  callback_urls = ["http://localhost:5173/auth/callback", "https://${var.domain_name}/auth/callback"]
-  logout_urls   = ["http://localhost:5173/login", "https://${var.domain_name}/login"]
+  # (Cloudflare) conviven en la misma lista; compact() quita el del dominio si no hay uno (domain_name
+  # vacío — ver variables.tf).
+  callback_urls = compact(["http://localhost:5173/auth/callback", var.domain_name != "" ? "https://${var.domain_name}/auth/callback" : ""])
+  logout_urls   = compact(["http://localhost:5173/login", var.domain_name != "" ? "https://${var.domain_name}/login" : ""])
 
   tags = {
     Project     = var.project_name
@@ -285,7 +286,11 @@ locals {
   frontend_website_domain = "${local.frontend_bucket_name}.s3-website-${data.aws_region.current.name}.amazonaws.com"
 }
 
+# count en vez de siempre 1: sin domain_name (var vacía, ver variables.tf), no hay nada que
+# apuntar en Cloudflare — así alguien sin dominio propio también puede desplegar el backend.
 resource "cloudflare_record" "frontend" {
+  count = var.domain_name != "" ? 1 : 0
+
   zone_id = var.cloudflare_zone_id
   name    = var.domain_name
   type    = "CNAME"
@@ -295,7 +300,7 @@ resource "cloudflare_record" "frontend" {
 }
 
 output "frontend_url" {
-  value = "https://${var.domain_name}"
+  value = var.domain_name != "" ? "https://${var.domain_name}" : null
 }
 
 output "frontend_bucket" {
