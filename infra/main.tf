@@ -29,9 +29,10 @@ module "cognito" {
   post_auth_lambda_arn = module.post_auth.lambda_arn
   aws_region           = data.aws_region.current.name
 
-  # Rutas de Diseño UX §1.5: P-00 /auth/callback y P-01 /login (dev local con Vite)
-  callback_urls = ["http://localhost:5173/auth/callback"]
-  logout_urls   = ["http://localhost:5173/login"]
+  # Rutas de Diseño UX §1.5: P-00 /auth/callback y P-01 /login. Local (Vite) y el dominio real
+  # (Cloudflare) conviven en la misma lista.
+  callback_urls = ["http://localhost:5173/auth/callback", "https://${var.domain_name}/auth/callback"]
+  logout_urls   = ["http://localhost:5173/login", "https://${var.domain_name}/login"]
 
   tags = {
     Project     = var.project_name
@@ -242,9 +243,15 @@ resource "aws_apigatewayv2_integration" "api" {
 
 # Ruta catch-all para los endpoints de la API (E-02 a E-22). El authorizer JWT es el que
 # llena requestContext.authorizer.jwt.claims; el router toma userId de claims.sub (NFR-05).
+# Un método por ruta, no "ANY": con "ANY" también se reclama OPTIONS, y como el preflight del
+# navegador nunca manda Authorization, el authorizer JWT lo rechaza con 401 en vez de dejar que
+# API Gateway responda el preflight automático de CORS (probado en vivo: solo pasaba al llamar
+# a la API cross-origin, nunca en local vía el proxy de Vite, mismo origen = sin preflight).
 resource "aws_apigatewayv2_route" "api_catchall" {
+  for_each = toset(["GET", "POST", "PATCH", "DELETE"])
+
   api_id             = aws_apigatewayv2_api.http_api.id
-  route_key          = "ANY /v1/{proxy+}"
+  route_key          = "${each.key} /v1/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
@@ -256,4 +263,47 @@ resource "aws_apigatewayv2_route" "api_health" {
   route_key          = "GET /v1/health"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "NONE"
+}
+
+# Edge: Learner Lab niega cloudfront:CreateDistribution (y CreateOriginAccessControl/
+# CreateFunction/CreateResponseHeadersPolicy antes de eso) — CloudFront no es viable en esta
+# cuenta, punto. En vez de ARQ §4.1, Cloudflare (que ya está al frente del dominio) hace de
+# CDN/TLS en modo proxied sobre el bucket S3 (sitio estático, bootstrap.sh). La API ya no vive
+# en el mismo origen: el frontend le pega cross-origin a api_endpoint directo, con CORS (ya
+# configurado arriba) en vez del behavior /v1/* que hubiera manejado CloudFront.
+#
+# El bucket se llama EXACTAMENTE igual que el dominio (no "${project}-frontend-${env}"): el
+# endpoint de sitio web de S3 identifica el bucket por el header Host de la petición, y
+# Cloudflare en modo proxied reenvía el Host original (el dominio) tal cual al origen — si no
+# coinciden, S3 responde "NoSuchBucket". Reescribir el Host con una Origin Rule es función de
+# un plan de pago de Cloudflare (probado, "not entitled to use the HostHeader override" en el
+# plan gratis), así que esta es la alternativa gratis, y es el patrón que documenta AWS para
+# S3 website hosting + dominio propio. No choca entre integrantes: un dominio registrado es
+# único a nivel mundial, igual garantía que ya usa el bucket del state con el ACCOUNT_ID.
+locals {
+  frontend_bucket_name    = var.domain_name
+  frontend_website_domain = "${local.frontend_bucket_name}.s3-website-${data.aws_region.current.name}.amazonaws.com"
+}
+
+resource "cloudflare_record" "frontend" {
+  zone_id = var.cloudflare_zone_id
+  name    = var.domain_name
+  type    = "CNAME"
+  content = local.frontend_website_domain
+  proxied = true # Cloudflare da el TLS (Universal SSL); ya no hace falta ACM.
+  ttl     = 1    # Terraform exige 1 ("automático") cuando proxied = true.
+}
+
+output "frontend_url" {
+  value = "https://${var.domain_name}"
+}
+
+output "frontend_bucket" {
+  description = "Bucket S3 del build del frontend (infra/deploy-frontend.sh); lo crea bootstrap.sh"
+  value       = local.frontend_bucket_name
+}
+
+output "cognito_domain" {
+  description = "Para el CSP (meta tag) en deploy-frontend.sh"
+  value       = module.cognito.cognito_domain
 }

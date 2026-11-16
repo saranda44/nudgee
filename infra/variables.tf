@@ -57,3 +57,19 @@ variable "upcoming_event_days" {
   description = "Ventana de eventos próximos con prioridad, en días (US-50)"
   default     = 7
 }
+
+variable "domain_name" {
+  description = "Dominio completo de la PWA (p. ej. nudgee.saranda.studio). El certificado ACM ya debe existir y estar validado — bootstrap.sh lo crea una sola vez (ARQ-05), no en cada apply."
+  type        = string
+}
+
+variable "cloudflare_zone_id" {
+  description = "Zone ID de Cloudflare de la zona donde vive domain_name (Overview de la zona en el dashboard)"
+  type        = string
+}
+
+variable "cloudflare_api_token" {
+  description = "API token de Cloudflare con permiso de editar DNS en esa zona (obtenido de SSM, igual que vapid_public_key)"
+  type        = string
+  sensitive   = true
+}
