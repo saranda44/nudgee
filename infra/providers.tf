@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 4.0"
+    }
   }
 
   backend "s3" {
@@ -29,4 +33,10 @@ provider "aws" {
       ManagedBy   = "Terraform"
     }
   }
+}
+
+# Solo para el registro CNAME final de CloudFront (módulo cloudfront). El certificado ACM y su
+# validación DNS viven en bootstrap.sh, fuera de este provider (ARQ-05).
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
 }

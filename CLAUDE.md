@@ -52,11 +52,24 @@ cd backend && npm run build
 cd infra
 terraform init -reconfigure -backend-config="bucket=nudgee-tf-state-<ACCOUNT_ID>"
 VAPID=$(aws ssm get-parameter --name /nudgee/VAPID_PUBLIC_KEY --with-decryption --query Parameter.Value --output text)
-terraform plan -var "environment=dev-<nombre>" -var "vapid_public_key=$VAPID" -out=tf.plan   # revisar antes de apply
+CF_TOKEN=$(aws ssm get-parameter --name /nudgee/CLOUDFLARE_API_TOKEN --with-decryption --query Parameter.Value --output text)
+terraform plan -var "environment=dev-<nombre>" -var "vapid_public_key=$VAPID" \
+  -var "domain_name=<tu-subdominio>" -var "cloudflare_zone_id=<tu-zone-id>" -var "cloudflare_api_token=$CF_TOKEN" \
+  -out=tf.plan   # revisar antes de apply
 terraform apply tf.plan
+
+# VITE_API_BASE_URL (.env.production.local) = terraform output -raw api_endpoint, antes del build:
+cd ../frontend && npm run build
+../infra/deploy-frontend.sh \
+  "$(terraform -chdir=../infra output -raw frontend_bucket)" \
+  "$(terraform -chdir=../infra output -raw cognito_domain)" \
+  "$(terraform -chdir=../infra output -raw api_endpoint)" \
+  "<tu-zone-id>" "$CF_TOKEN"
 ```
 
 Learner Lab no permite crear roles IAM: toda Lambda (y EventBridge Scheduler) usa `LabRole` vía `data "aws_iam_role"`.
+
+**CloudFront no es viable en Learner Lab**: `cloudfront:CreateDistribution` (y antes, `CreateOriginAccessControl`/`CreateFunction`/`CreateResponseHeadersPolicy`/`ListCachePolicies`) está denegado en el role de `voclabs`. Por eso, a diferencia de ARQ §4.1: Cloudflare (ya al frente del dominio) hace de CDN/TLS en modo *proxied* sobre un bucket S3 público (sitio estático, `error_document = index.html` como SPA fallback — creado en `bootstrap.sh`, no por el `aws_s3_bucket` de Terraform, que también falla por una denegación de la SCP al leer la config de object lock); y el frontend le pega a la API **cross-origin** (`VITE_API_BASE_URL`, con el CORS que ya está en `infra/main.tf`) en vez de por `/v1/*` del mismo origen. El CSP va por `<meta>` tag en el build (`infra/deploy-frontend.sh`), sin `frame-ancestors`/HSTS/`X-Content-Type-Options` (un `<meta>` no los puede dar). `bootstrap.sh` necesita `DOMAIN_NAME`, `CLOUDFLARE_ZONE_ID` y `CLOUDFLARE_API_TOKEN` exportados la primera vez (ya no pide nada de ACM). El bucket del frontend se llama **exactamente igual que `domain_name`** (no `${project}-frontend-${env}`): el endpoint de sitio web de S3 identifica el bucket por el header `Host`, y Cloudflare proxied lo reenvía tal cual — reescribirlo con una Origin Rule es función de un plan de pago de Cloudflare, así que esta es la alternativa gratis (y es el patrón que documenta AWS); no choca entre integrantes porque un dominio registrado es único a nivel mundial.
 
 ## Convenciones del backend
 
