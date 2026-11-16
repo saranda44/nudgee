@@ -71,8 +71,8 @@ variable "cloudflare_zone_id" {
 }
 
 variable "cloudflare_api_token" {
-  description = "API token de Cloudflare con permiso de editar DNS en esa zona (obtenido de SSM, igual que vapid_public_key). Solo hace falta si domain_name no está vacío."
+  description = "API token de Cloudflare con permiso de editar DNS en esa zona (obtenido de SSM, igual que vapid_public_key). Solo hace falta si domain_name no está vacío. El provider de Cloudflare valida el FORMATO de esto siempre (aunque ningún recurso lo use si domain_name está vacío) — un \"\" no pasa esa validación (pide mínimo 1 carácter), por eso el default es un placeholder con formato válido, nunca un token real."
   type        = string
-  default     = ""
+  default     = "no-token-configured"
   sensitive   = true
 }
