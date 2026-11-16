@@ -2,8 +2,10 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-// En producción la PWA y la API comparten origen vía CloudFront (`/v1/*`). En local, el
-// proxy de Vite reproduce ese mismo origen, así no hace falta CORS en la API.
+// En local, el proxy de Vite reproduce el mismo origen (`/v1`), así no hace falta CORS para
+// desarrollar. En producción la PWA llama a la API cross-origin (VITE_API_BASE_URL en
+// config.ts): Learner Lab no permite CloudFront, así que ya no comparten origen (ver
+// infra/main.tf); el CORS de la API ya está configurado para esto.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {

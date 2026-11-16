@@ -1,8 +1,10 @@
 /**
- * Cliente de la API (mismo origen, `/v1/*`). Agrega el Bearer, reintenta una vez tras
- * refrescar ante un 401 (Contratos §8) y convierte problem+json en ApiError con `code` estable.
+ * Cliente de la API (`config.apiBaseUrl` + `/v1/*`; vacío = mismo origen en dev). Agrega el
+ * Bearer, reintenta una vez tras refrescar ante un 401 (Contratos §8) y convierte problem+json
+ * en ApiError con `code` estable.
  */
 
+import { config } from "../config.ts";
 import { getAccessToken, refreshAccessToken, SessionExpiredError } from "../auth/session.ts";
 import { fetchOrNetworkError } from "./network-error.ts";
 
@@ -66,7 +68,7 @@ async function send(path: string, opts: RequestOptions, token: string): Promise<
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
   if (opts.ifMatch !== undefined) headers["If-Match"] = `"${opts.ifMatch}"`;
-  return fetchOrNetworkError(path, {
+  return fetchOrNetworkError(`${config.apiBaseUrl}${path}`, {
     method: opts.method ?? "GET",
     headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
