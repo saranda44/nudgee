@@ -333,6 +333,8 @@ a { color: var(--accent); }
 .app-combobox__list li.is-highlighted { background: var(--surface-muted); }
 .app-combobox__list li[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .app-combobox__list li[aria-selected="true"].is-highlighted { background: var(--accent-pressed); }
+.app-combobox__list li.is-disabled { color: var(--ink-muted); cursor: default; }
+.app-combobox__list li.is-disabled.is-highlighted { background: transparent; }
 
 /* P-04: agregar una entrada a una lista editable — distinto de ng-input (lo que agrega, no un campo más) */
 .app-btn-add {

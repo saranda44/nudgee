@@ -151,6 +151,7 @@ export function SelectField({
   const items = placeholder ? [{ value: "", label: placeholder }, ...options] : options;
   const selectedIndex = Math.max(0, items.findIndex((o) => o.value === value));
   const selected = items[selectedIndex];
+  const firstSelectable = placeholder ? 1 : 0; // la opción placeholder (índice 0) está deshabilitada
 
   useEffect(() => {
     if (!open) return;
@@ -162,7 +163,7 @@ export function SelectField({
   }, [open]);
 
   const openList = () => {
-    setHighlight(selectedIndex);
+    setHighlight(Math.max(selectedIndex, firstSelectable));
     setOpen(true);
   };
 
@@ -170,7 +171,8 @@ export function SelectField({
 
   const commit = (index: number) => {
     const opt = items[index];
-    if (opt) onChange(opt.value);
+    if (!opt || opt.value === "") return; // opción placeholder: deshabilitada, no seleccionable
+    onChange(opt.value);
     setOpen(false);
   };
 
@@ -178,12 +180,12 @@ export function SelectField({
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        if (open) setHighlight((h) => Math.min(items.length - 1, h + 1));
+        if (open) setHighlight((h) => Math.min(items.length - 1, Math.max(h + 1, firstSelectable)));
         else openList();
         break;
       case "ArrowUp":
         e.preventDefault();
-        if (open) setHighlight((h) => Math.max(0, h - 1));
+        if (open) setHighlight((h) => Math.max(firstSelectable, h - 1));
         else openList();
         break;
       case "Enter":
@@ -227,19 +229,23 @@ export function SelectField({
           </button>
           {open && (
             <ul className="app-combobox__list" role="listbox" id={listId} aria-labelledby={buttonId}>
-              {items.map((opt, i) => (
-                <li
-                  key={opt.value || "placeholder"}
-                  id={`${listId}-${i}`}
-                  role="option"
-                  aria-selected={i === selectedIndex}
-                  className={i === highlight ? "is-highlighted" : undefined}
-                  onMouseEnter={() => setHighlight(i)}
-                  onClick={() => commit(i)}
-                >
-                  {opt.label}
-                </li>
-              ))}
+              {items.map((opt, i) => {
+                const isPlaceholder = opt.value === "";
+                return (
+                  <li
+                    key={opt.value || "placeholder"}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    aria-selected={i === selectedIndex}
+                    aria-disabled={isPlaceholder || undefined}
+                    className={[i === highlight && "is-highlighted", isPlaceholder && "is-disabled"].filter(Boolean).join(" ") || undefined}
+                    onMouseEnter={() => !isPlaceholder && setHighlight(i)}
+                    onClick={() => commit(i)}
+                  >
+                    {opt.label}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
