@@ -6,7 +6,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { validateAnalysis, formatValidationErrors, type ValidationIssue } from "../schemas/validators.ts";
+import { validateAnalysis, type ValidationIssue } from "../schemas/validators.ts";
 import { readJsonBody, requireUserId, type Route, type HandlerContext } from "./router.ts";
 import { itemResponse } from "./item-dto.ts";
 import { ProblemError, buildProblemResponse, buildValidationErrorResponse } from "./problem.ts";
@@ -218,12 +218,8 @@ export const editItemRoutes: Route[] = [
 
       // Validar contra schema
       const { valid, errors: validationErrors } = validateAnalysis("input", toValidate);
-      if (!validationErrors) {
-        // Si hay errores de validación
-        const formatted = formatValidationErrors(validationErrors, toValidate);
-        if (formatted.length > 0) {
-          return buildValidationErrorResponse(formatted, ctx.correlationId);
-        }
+      if (!valid && validationErrors && validationErrors.length > 0) {
+        return buildValidationErrorResponse(validationErrors, ctx.correlationId);
       }
 
       // Si cambia category, details es obligatorio
@@ -409,11 +405,8 @@ export const editItemRoutes: Route[] = [
       // Validar contra schema
       const toValidate = { category, title, summary: summary ?? undefined, details: details ?? undefined };
       const { valid, errors: validationErrors } = validateAnalysis("input", toValidate);
-      if (!validationErrors) {
-        const formatted = formatValidationErrors(validationErrors, toValidate);
-        if (formatted.length > 0) {
-          return buildValidationErrorResponse(formatted, ctx.correlationId);
-        }
+      if (!valid && validationErrors && validationErrors.length > 0) {
+        return buildValidationErrorResponse(validationErrors, ctx.correlationId);
       }
 
       // details es obligatorio
