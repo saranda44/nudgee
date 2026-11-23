@@ -88,3 +88,9 @@ variable "load_test_enabled" {
   type        = bool
   default     = false
 }
+
+variable "alarm_email" {
+  description = "Correo para recibir notificaciones de alarmas de CloudWatch (NFR-10); vacío = sin notificación"
+  type        = string
+  default     = ""
+}

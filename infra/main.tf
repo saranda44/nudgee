@@ -191,7 +191,7 @@ module "dlq" {
   environment         = var.environment
   dynamodb_table_name = module.dynamodb.table_name
   dlq_arn             = module.sqs.dlq_arn
-  alarm_topic_arn     = var.alarm_topic_arn
+  alarm_topic_arn     = aws_sns_topic.alerts.arn
 }
 
 # Lambda Dispatcher (Fase 4)
@@ -356,4 +356,63 @@ resource "aws_cloudwatch_query_definition" "trace_by_correlation_id" {
     | filter correlationId = "PEGA_AQUI_EL_CORRELATION_ID"
     | sort @timestamp asc
   QUERY
+}
+
+# NFR-10: Topic SNS para notificaciones de alarmas (Fase 9)
+resource "aws_sns_topic" "alerts" {
+  name = "${var.project_name}-alerts-${var.environment}"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  count     = var.alarm_email != "" ? 1 : 0
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alarm_email
+}
+
+output "alarm_topic_arn" {
+  description = "ARN del topic SNS para alarmas (pasar a Terraform con -var o en tfvars)"
+  value       = aws_sns_topic.alerts.arn
+}
+
+# NFR-10: Alarma de 5xx > 1% en 5 min en API Gateway (Fase 9, simplificada)
+# shortcut: porcentaje exacto, upgrade cuando sea crítico; hoy alerta si hay cualquier 5xx
+resource "aws_cloudwatch_metric_alarm" "apigw_5xx_errors" {
+  alarm_name          = "${var.project_name}-apigw-5xx-errors-${var.environment}"
+  alarm_description   = "Hay errores 5xx en la API en los últimos 5 minutos"
+  namespace           = "AWS/ApiGateway"
+  metric_name         = "5XXError"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ApiId = aws_apigatewayv2_api.http_api.id
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+}
+
+# NFR-10: Alarma de mensaje más viejo > 5 min en la cola SQS (Fase 9)
+resource "aws_cloudwatch_metric_alarm" "sqs_oldest_message" {
+  alarm_name          = "${var.project_name}-sqs-oldest-message-${var.environment}"
+  alarm_description   = "El mensaje más viejo en la cola de análisis tiene más de 5 minutos"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 5
+  threshold           = 300
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  dimensions = {
+    QueueName = "${var.project_name}-analysis-${var.environment}.fifo"
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
 }
