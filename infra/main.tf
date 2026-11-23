@@ -172,6 +172,7 @@ module "dlq" {
   environment         = var.environment
   dynamodb_table_name = module.dynamodb.table_name
   dlq_arn             = module.sqs.dlq_arn
+  alarm_topic_arn     = var.alarm_topic_arn
 }
 
 # Lambda Dispatcher (Fase 4)

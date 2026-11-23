@@ -18,6 +18,7 @@ import webpush from "web-push";
 import { randomUUID } from "crypto";
 import { loadConfig, planSlot, slotKeyFor, type Candidate } from "./engine.ts";
 import { buildReminderMessage } from "./messages.ts";
+import { emitMetrics } from "../shared/emf.ts";
 
 const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
@@ -306,6 +307,9 @@ export const handler = async (event: DispatcherEvent): Promise<DispatchOutcome> 
         : successCount > 0
           ? "PARTIAL"
           : "FAILED";
+
+  // Tasa de éxito de push del dashboard (NFR-10). Antes del update: el push ya ocurrió.
+  emitMetrics([{ name: "PushSent", value: 1, unit: "Count" }], { status: deliveryStatus });
 
   if (subscriptions.length > 0) {
     await docClient.send(

@@ -21,6 +21,7 @@ backend/            Un package.json para todas las Lambdas (TypeScript, Node 22,
   post-auth/        Trigger Post Authentication de Cognito (upsert de PROFILE)
   dlq/              Consumidor de la DLQ FIFO (NEEDS_INPUT + RETRIES_EXHAUSTED)
   schemas/          Paquete compartido: TypeBox + Ajv, 10 categorías, schema plano de Gemini
+  shared/           Utilidades comunes entre Lambdas (emf.ts: métricas EMF, namespace Nudgee)
   scripts/build.mjs Empaqueta cada Lambda en dist/<lambda>/index.js
 infra/              Terraform: main.tf raíz + modules/<servicio>; bootstrap.sh crea el stack persistente
 frontend/           PWA React + Vite (Fase 8, en curso): ver frontend/README.md (setup, estructura, estado por etapa)
@@ -39,7 +40,7 @@ cd frontend && npm run typecheck && npm test   # Vitest; npm run dev en :5173 (v
 cd backend && npm test            # node:test sobre **/*.test.ts (Node ≥ 22.18 en local; Lambda corre en Node 22)
 ```
 
-Tests en `api/*.test.ts` (router, transiciones E-10…E-17, recurso Item, E-19, E-20) y `dispatcher/index.test.ts`; el resto no tiene cobertura. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS (el `Item` de la falla condicional viene *marshalled*, igual que en el SDK real). Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
+Tests en `api/*.test.ts` (router, transiciones E-10…E-17, recurso Item, E-19, E-20), `dispatcher/index.test.ts` y `dlq/index.test.ts`; el resto no tiene cobertura. Cada carpeta de Lambda (y `shared/`) lleva un `package.json` con `"type": "module"`: sin él, Node no resuelve sus imports en los tests. DynamoDB se mockea con `mockDdb`/`conditionalFailure` de `api/test-helpers.ts`, sin AWS (el `Item` de la falla condicional viene *marshalled*, igual que en el SDK real). Los tests con `{ todo: "bug: …" }` describen el contrato correcto y hoy fallan por bugs conocidos: al arreglar uno, quita su `todo`. Los imports de solo tipos deben ser `import type` (Node ejecuta `.ts` con type stripping; `aws-lambda` no existe en runtime).
 
 Los mocks no detectan errores que solo DynamoDB real rechaza (palabras reservadas como `timezone`/`name`, sintaxis de `UpdateExpression`): después de desplegar, prueba con `curl` contra la API.
 
