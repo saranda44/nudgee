@@ -71,3 +71,27 @@ resource "aws_cognito_user_pool_ui_customization" "all_clients" {
 
   depends_on = [aws_cognito_user_pool_domain.main]
 }
+# App client SOLO para las pruebas de carga (docs/observabilidad.md §5), apagado por defecto.
+# ADMIN_USER_PASSWORD_AUTH exige credenciales de AWS (cognito-idp:AdminInitiateAuth): nadie
+# puede usarlo desde internet. Sin OAuth ni Hosted UI; el client PKCE de la PWA no cambia.
+resource "aws_cognito_user_pool_client" "load_test" {
+  count = var.load_test_enabled ? 1 : 0
+
+  name         = "${var.project_name}-loadtest-client-${var.environment}"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  generate_secret     = false
+  explicit_auth_flows = ["ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "days"
+  }
+
+  access_token_validity  = 60
+  id_token_validity      = 60
+  refresh_token_validity = 1
+
+  prevent_user_existence_errors = "ENABLED"
+}

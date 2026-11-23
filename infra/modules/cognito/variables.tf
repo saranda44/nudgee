@@ -31,3 +31,8 @@ variable "post_auth_lambda_arn" {
   type        = string
   default     = ""
 }
+variable "load_test_enabled" {
+  description = "Crea el app client de pruebas de carga"
+  type        = bool
+  default     = false
+}

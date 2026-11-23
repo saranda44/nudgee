@@ -13,3 +13,7 @@ output "cognito_domain" {
 output "user_pool_arn" {
   value = aws_cognito_user_pool.main.arn
 }
+
+output "load_test_client_id" {
+  value = var.load_test_enabled ? aws_cognito_user_pool_client.load_test[0].id : null
+}
