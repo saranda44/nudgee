@@ -82,7 +82,7 @@ function loadConfig(): LoadTestConfig {
   try {
     raw = execFileSync("terraform", [`-chdir=${infraDir}`, "output", "-json", "load_test"], { encoding: "utf8" });
   } catch {
-    fail("No pude leer `terraform output load_test` (¿hiciste terraform init en infra/?)");
+    fail("No hay `terraform output load_test`: aplica con -var load_test_enabled=true (y terraform init en infra/)");
   }
   const config = JSON.parse(raw) as LoadTestConfig | null;
   if (!config) fail("load_test es null: aplica Terraform con -var load_test_enabled=true");
