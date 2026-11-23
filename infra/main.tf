@@ -416,3 +416,287 @@ resource "aws_cloudwatch_metric_alarm" "sqs_oldest_message" {
   alarm_actions = [aws_sns_topic.alerts.arn]
   ok_actions    = [aws_sns_topic.alerts.arn]
 }
+
+# NFR-10: Dashboard de observabilidad (Fase 9)
+# Paneles NFR-10 (B) + escalabilidad (C)
+
+locals {
+  api_id       = aws_apigatewayv2_api.http_api.id
+  queue_name   = "${var.project_name}-analysis-${var.environment}.fifo"
+  region       = data.aws_region.current.name
+  env_name     = var.environment
+  proj_name    = var.project_name
+}
+
+resource "aws_cloudwatch_dashboard" "nudgee" {
+  dashboard_name = "${var.project_name}-${var.environment}"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      # Row 1: Latencia de POST /v1/items (p50/p95/p99)
+      {
+        type = "metric"
+        x    = 0
+        y    = 0
+        width = 24
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/ApiGateway", "Latency", { dimensions = { ApiId = local.api_id, Route = "POST /v1/items" }, stat = "p50", label = "p50" }],
+            ["...", { dimensions = { ApiId = local.api_id, Route = "POST /v1/items" }, stat = "p95", label = "p95" }],
+            ["...", { dimensions = { ApiId = local.api_id, Route = "POST /v1/items" }, stat = "p99", label = "p99" }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "POST /v1/items - Latencia (p50/p95/p99)"
+          period  = 300
+        }
+      },
+
+      # Row 2: Cola SQS - profundidad
+      {
+        type = "metric"
+        x    = 0
+        y    = 6
+        width = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", { dimensions = { QueueName = local.queue_name } }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "Cola SQS - Profundidad"
+          period  = 60
+        }
+      },
+
+      # Row 2: Cola SQS - edad
+      {
+        type = "metric"
+        x    = 8
+        y    = 6
+        width = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/SQS", "ApproximateAgeOfOldestMessage", { dimensions = { QueueName = local.queue_name } }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "Cola SQS - Edad del mensaje más viejo"
+          period  = 60
+        }
+      },
+
+      # Row 2: worker-ia ConcurrentExecutions (widget clave de escalabilidad)
+      {
+        type = "metric"
+        x    = 16
+        y    = 6
+        width = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/Lambda", "ConcurrentExecutions", { dimensions = { FunctionName = "${local.proj_name}-worker-ia-${local.env_name}" } }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "worker-ia - Concurrencia (máx=2)"
+          period  = 60
+        }
+      },
+
+      # Row 3: DLQ - AnalysisDeadLettered
+      {
+        type = "metric"
+        x    = 0
+        y    = 12
+        width = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "AnalysisDeadLettered", { stat = "Sum" }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "DLQ - Análisis rechazados"
+          period  = 60
+        }
+      },
+
+      # Row 3: Gemini errors (por tipo)
+      {
+        type = "metric"
+        x    = 8
+        y    = 12
+        width = 16
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "GeminiError", { dimensions = { type = "429" }, stat = "Sum", label = "Rate limit (429)" }],
+            ["...", { dimensions = { type = "5xx" }, stat = "Sum", label = "5xx" }],
+            ["...", { dimensions = { type = "TIMEOUT" }, stat = "Sum", label = "Timeout" }],
+            ["...", { dimensions = { type = "INVALID_OUTPUT" }, stat = "Sum", label = "Output inválido" }],
+          ]
+          view    = "timeSeries"
+          stacked = true
+          region  = local.region
+          title   = "Errores de Gemini (por tipo)"
+          period  = 300
+        }
+      },
+
+      # Row 4: Tasa de caché
+      {
+        type = "metric"
+        x    = 0
+        y    = 18
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "AnalysisDurationMs", { dimensions = { analysisSource = "CACHE" }, stat = "SampleCount", id = "cache_count" }],
+            ["...", { dimensions = { analysisSource = "GEMINI" }, stat = "SampleCount", id = "gemini_count" }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "Tasa de aciertos de caché (CACHE / TOTAL)"
+          period  = 300
+        }
+      },
+
+      # Row 4: Éxito de push (PushSent por status)
+      {
+        type = "metric"
+        x    = 12
+        y    = 18
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "PushSent", { dimensions = { status = "SENT" }, stat = "Sum", label = "SENT" }],
+            ["...", { dimensions = { status = "PARTIAL" }, stat = "Sum", label = "PARTIAL" }],
+            ["...", { dimensions = { status = "FAILED" }, stat = "Sum", label = "FAILED" }],
+            ["...", { dimensions = { status = "IN_APP" }, stat = "Sum", label = "IN_APP" }],
+          ]
+          view    = "timeSeries"
+          stacked = true
+          region  = local.region
+          title   = "Push - Estado de entregas"
+          period  = 300
+        }
+      },
+
+      # Row 5: dispatcher ConcurrentExecutions
+      {
+        type = "metric"
+        x    = 0
+        y    = 24
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/Lambda", "ConcurrentExecutions", { dimensions = { FunctionName = "${local.proj_name}-dispatcher-${local.env_name}" } }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "dispatcher - Concurrencia"
+          period  = 60
+        }
+      },
+
+      # Row 5: Throttles en Lambdas (todas las 6)
+      {
+        type = "metric"
+        x    = 12
+        y    = 24
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/Lambda", "Throttles", { dimensions = { FunctionName = "${local.proj_name}-api-${local.env_name}" }, label = "api" }],
+            ["...", { dimensions = { FunctionName = "${local.proj_name}-ingesta-${local.env_name}" }, label = "ingesta" }],
+            ["...", { dimensions = { FunctionName = "${local.proj_name}-worker-ia-${local.env_name}" }, label = "worker-ia" }],
+            ["...", { dimensions = { FunctionName = "${local.proj_name}-dispatcher-${local.env_name}" }, label = "dispatcher" }],
+            ["...", { dimensions = { FunctionName = "${local.proj_name}-post-auth-${local.env_name}" }, label = "post-auth" }],
+            ["...", { dimensions = { FunctionName = "${local.proj_name}-dlq-${local.env_name}" }, label = "dlq" }],
+          ]
+          view    = "timeSeries"
+          stacked = true
+          region  = local.region
+          title   = "Lambda Throttles (todas)"
+          period  = 60
+        }
+      },
+
+      # Row 6: DynamoDB - ConsumedCapacity
+      {
+        type = "metric"
+        x    = 0
+        y    = 30
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", { dimensions = { TableName = "nudgee-main" }, stat = "Sum", label = "Read" }],
+            ["...", "ConsumedWriteCapacityUnits", { dimensions = { TableName = "nudgee-main" }, stat = "Sum", label = "Write" }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "DynamoDB - Capacidad consumida"
+          period  = 60
+        }
+      },
+
+      # Row 6: DynamoDB - Throttles
+      {
+        type = "metric"
+        x    = 12
+        y    = 30
+        width = 12
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/DynamoDB", "ThrottledRequests", { dimensions = { TableName = "nudgee-main" } }],
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = local.region
+          title   = "DynamoDB - Requests throttled"
+          period  = 60
+        }
+      },
+
+      # Row 7: API Gateway - Request count + status
+      {
+        type = "metric"
+        x    = 0
+        y    = 36
+        width = 24
+        height = 6
+        properties = {
+          metrics = [
+            ["AWS/ApiGateway", "Count", { dimensions = { ApiId = local.api_id }, stat = "Sum", label = "Total requests" }],
+            ["...", "2XXError", { dimensions = { ApiId = local.api_id }, stat = "Sum", label = "2xx" }],
+            ["...", "4XXError", { dimensions = { ApiId = local.api_id }, stat = "Sum", label = "4xx" }],
+            ["...", "5XXError", { dimensions = { ApiId = local.api_id }, stat = "Sum", label = "5xx" }],
+          ]
+          view    = "timeSeries"
+          stacked = true
+          region  = local.region
+          title   = "API Gateway - Request distribution"
+          period  = 300
+        }
+      },
+    ]
+  })
+}
