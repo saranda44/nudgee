@@ -10,6 +10,7 @@ NFR-10 · ARQ-18 · Arquitectura §4.8. Documento vivo del repo (no es export de
 | A. Métricas EMF `AnalysisDeadLettered` (dlq) y `PushSent` (dispatcher) | Emilio | ✅ PR #27, probado en `dev-emilio` |
 | D. Alarma `AnalysisDeadLettered > 0` | Emilio | ✅ PR #27, probada (OK → ALARM → OK) |
 | Script de pruebas de carga | Emilio | ⏳ por diseñar (ver §5) |
+| X-Ray en las 6 Lambdas | Emilio | ⏳ pendiente (ver §7) |
 | B. Dashboard NFR-10 (en Terraform) | Sara | ⏳ sin empezar |
 | C. Paneles de escalabilidad | Sara | ⏳ sin empezar |
 | D. Alarmas 5xx > 1 % en 5 min y mensaje más viejo > 5 min, topic SNS | Sara | ⏳ sin empezar |
@@ -83,9 +84,9 @@ Se corren en el lab de la demo: el dashboard solo grafica su propia cuenta, y Cl
 - **Antes de abrir PR:** `cd backend && npm run typecheck && npm test`, y `terraform fmt -check && terraform validate` si tocaste infra.
 - **Al desplegar:** `terraform plan` siempre antes de `apply`. Learner Lab desactiva los event source mappings de SQS al cerrar sesión; el siguiente `apply` los reactiva (sale como `enabled false → true`, es normal).
 
-## 7. Huecos de NFR-10 sin dueño (decidir quién)
+## 7. Huecos de NFR-10
 
-- **X-Ray:** NFR-10 y Arquitectura §4.8 lo piden en las 6 Lambdas, y la verificación de NFR-10 es "traza de punta a punta en la demo". Hoy ningún módulo tiene `tracing_config { mode = "Active" }`. Falta verificar que `LabRole` tenga permisos de X-Ray.
+- **X-Ray (Emilio, junto con las pruebas de carga):** NFR-10 y Arquitectura §4.8 lo piden en las 6 Lambdas, y la verificación de NFR-10 es "traza de punta a punta en la demo". Hoy ningún módulo tiene `tracing_config { mode = "Active" }`. Falta verificar que `LabRole` tenga permisos de X-Ray.
 - **`GeminiCallMs`:** está definida pero no se emite (§1).
 - **Métricas de Ingesta** `SaveAccepted`, `SaveDuplicate` y `QuotaExceeded` (Arquitectura §4.8): no se emiten. Opcionales para el dashboard.
 - **Bugs que ya existían en la Lambda dlq:** el `UpdateCommand` sin condición recrea un ítem "fantasma" si el usuario lo borró, y un error de DynamoDB se ignora (el ítem queda en `PROCESSING`).
