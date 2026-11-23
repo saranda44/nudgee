@@ -108,6 +108,11 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.http_api.id
   name        = "$default"
   auto_deploy = true
+
+  route_settings {
+    route_key              = "POST /v1/items"
+    detailed_metrics_enabled = true
+  }
 }
 
 # 3. JWT Authorizer conectado a tu Cognito
