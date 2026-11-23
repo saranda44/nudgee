@@ -17,6 +17,11 @@ function logError(message: string, correlationId: string, error: unknown): void 
   console.error(JSON.stringify({ level: "error", correlationId, message, error: String(error) }));
 }
 
+/** NFR-10: una línea por guardado para seguir el correlationId desde aquí (sin email ni nombre). */
+function logInfo(message: string, correlationId: string, extra: Record<string, unknown>): void {
+  console.log(JSON.stringify({ level: "info", correlationId, message, ...extra }));
+}
+
 function getCorrelationId(event: APIGatewayProxyEventV2WithJWTAuthorizer): string {
   const header = event.headers?.["x-correlation-id"];
   return header && header.length > 0 ? header : randomUUID();
@@ -134,6 +139,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
     }
 
     if (outcome.kind === "quota_exceeded") {
+      logInfo("Guardado rechazado por cuota", correlationId, { videoId, outcome: "QUOTA_EXCEEDED", window: outcome.window });
       return buildProblemResponse(
         new ProblemError({
           status: 429,
@@ -148,6 +154,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
 
     if (outcome.kind === "duplicate") {
       const { existing } = outcome;
+      logInfo("Guardado duplicado", correlationId, { videoId, outcome: "DUPLICATE", existingStatus: existing.status });
 
       // reencolar si el guardado original pudo interrumpirse entre la
       // transacción y el SendMessage (el ítem sigue en PROCESSING hace > 60 s).
@@ -188,6 +195,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
       );
     }
 
+    logInfo("Guardado aceptado y encolado", correlationId, { videoId, outcome: "CREATED" });
     return buildCreatedResponse({
       videoId,
       sourceUrl,
