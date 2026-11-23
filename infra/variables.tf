@@ -76,3 +76,9 @@ variable "cloudflare_api_token" {
   default     = "no-token-configured"
   sensitive   = true
 }
+
+variable "alarm_topic_arn" {
+  description = "Topic SNS para las alarmas de CloudWatch (NFR-10); vacío = sin notificación"
+  type        = string
+  default     = ""
+}

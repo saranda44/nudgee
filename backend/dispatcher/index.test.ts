@@ -55,6 +55,11 @@ function fakeTable(table: Table) {
   });
 }
 
+/** Líneas EMF de `PushSent` entre los `console.log` capturados. */
+function pushSentLines(calls: ReadonlyArray<{ arguments: unknown[] }>) {
+  return calls.map((c) => JSON.parse(String(c.arguments[0]))).filter((line) => line._aws && "PushSent" in line);
+}
+
 const candidate = (videoId: string, savedAt: string) => ({ videoId, GSI1SK: `${savedAt}#${videoId}`, category: "RECIPE", notifyCount: 0 });
 
 beforeEach(() => {
@@ -150,6 +155,39 @@ describe("dispatcher handler", () => {
     assert.deepEqual(deleted.map((i) => i.Key.SK), ["SUB#gone"]);
     const finalUpdate = ddb.inputs.find((i) => i.Key?.SK === "NOTIF#2026-06-15T09");
     assert.deepEqual(finalUpdate?.ExpressionAttributeValues, { ":status": "PARTIAL", ":ok": 1 });
+  });
+
+  it("emite PushSent con la dimensión status igual al deliveryStatus", async () => {
+    const logs = mock.method(console, "log", () => {});
+    mock.method(webpush, "sendNotification", async () => ({}));
+    fakeTable({
+      candidates: [candidate("aaaaaaaaaaa", "2026-01-01")],
+      subscriptions: [{ PK: `USER#${TEST_SUB}`, SK: "SUB#ok", subscriptionId: "ok", endpoint: "https://fcm.googleapis.com/ok", keys: {} }],
+      items: { aaaaaaaaaaa: fullItem("aaaaaaaaaaa") },
+    });
+
+    await handler(EVENT);
+
+    const emf = pushSentLines(logs.mock.calls);
+    assert.equal(emf.length, 1);
+    assert.equal(emf[0].PushSent, 1);
+    assert.equal(emf[0].status, "SENT");
+    assert.deepEqual(emf[0]._aws.CloudWatchMetrics[0].Dimensions, [["status"]]);
+  });
+
+  it("no emite PushSent si la franja ya estaba registrada", async () => {
+    const logs = mock.method(console, "log", () => {});
+    fakeTable({
+      candidates: [candidate("aaaaaaaaaaa", "2026-01-01")],
+      items: { aaaaaaaaaaa: fullItem("aaaaaaaaaaa") },
+      transact: () => {
+        throw canceled(["ConditionalCheckFailed", "None"]);
+      },
+    });
+
+    await handler(EVENT);
+
+    assert.equal(pushSentLines(logs.mock.calls).length, 0);
   });
 
   it("pasa a DORMANT los ítems con 3 recordatorios ignorados", async () => {
