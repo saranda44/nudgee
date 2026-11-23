@@ -313,3 +313,28 @@ output "cognito_domain" {
   description = "Para el CSP (meta tag) en deploy-frontend.sh"
   value       = module.cognito.cognito_domain
 }
+
+# NFR-10 sin X-Ray: LabRole no tiene xray:PutTraceSegments (verificado con
+# iam simulate-principal-policy, 2026-11-22), así que la traza de punta a punta se hace con el
+# correlationId que ya viaja Ingesta → SQS → worker-ia → dlq. Consulta guardada en
+# CloudWatch → Logs Insights → "Queries guardadas"; se reemplaza el valor del filtro.
+resource "aws_cloudwatch_query_definition" "trace_by_correlation_id" {
+  name = "${var.project_name}-${var.environment}/traza-por-correlationId"
+
+  log_group_names = [for fn in [
+    module.ingesta.function_name,
+    module.worker_ia.function_name,
+    module.dlq.function_name,
+    module.api.function_name,
+    module.dispatcher.function_name,
+  ] : "/aws/lambda/${fn}"]
+
+  query_string = <<-QUERY
+    # Pega el correlationId (header X-Correlation-Id de la respuesta de POST /v1/items).
+    # El dispatcher usa el id de ejecución del Scheduler: para seguir un recordatorio,
+    # cambia el filtro por videoId = "<videoId>".
+    fields @timestamp, @log, level, message, videoId, outcome, attempt
+    | filter correlationId = "PEGA_AQUI_EL_CORRELATION_ID"
+    | sort @timestamp asc
+  QUERY
+}
