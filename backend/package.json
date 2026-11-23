@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.1155.0",
     "@types/aws-lambda": "^8.10.164",
     "@types/node": "^26.6.5",
     "@types/web-push": "^3.6.3",

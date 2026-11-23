@@ -82,3 +82,9 @@ variable "alarm_topic_arn" {
   type        = string
   default     = ""
 }
+
+variable "load_test_enabled" {
+  description = "Crea el app client de Cognito para las pruebas de carga (ADMIN_USER_PASSWORD_AUTH) y lo agrega al audience del authorizer. Apagado por defecto; ver docs/observabilidad.md §5."
+  type        = bool
+  default     = false
+}

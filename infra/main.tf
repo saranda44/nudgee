@@ -28,6 +28,7 @@ module "cognito" {
   environment          = var.environment
   post_auth_lambda_arn = module.post_auth.lambda_arn
   aws_region           = data.aws_region.current.name
+  load_test_enabled    = var.load_test_enabled
 
   # Rutas de Diseño UX §1.5: P-00 /auth/callback y P-01 /login. Local (Vite) y el dominio real
   # (Cloudflare) conviven en la misma lista; compact() quita el del dominio si no hay uno (domain_name
@@ -117,7 +118,8 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
   name             = "cognito-authorizer"
 
   jwt_configuration {
-    audience = [module.cognito.user_pool_client_id]
+    # El client de pruebas de carga solo existe con load_test_enabled = true.
+    audience = concat([module.cognito.user_pool_client_id], var.load_test_enabled ? [module.cognito.load_test_client_id] : [])
     issuer   = "https://cognito-idp.${data.aws_region.current.name}.amazonaws.com/${module.cognito.user_pool_id}"
   }
 }
@@ -149,6 +151,18 @@ resource "aws_lambda_permission" "apigw_ingesta" {
 
 output "api_endpoint" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
+}
+
+# Lo lee backend/scripts/load-test.ts (terraform output -json); null con load_test_enabled = false.
+output "load_test" {
+  value = var.load_test_enabled ? {
+    environment  = var.environment
+    api_endpoint = aws_apigatewayv2_api.http_api.api_endpoint
+    user_pool_id = module.cognito.user_pool_id
+    client_id    = module.cognito.load_test_client_id
+    table_name   = module.dynamodb.table_name
+    queue_url    = module.sqs.queue_url
+  } : null
 }
 
 module "post_auth" {
