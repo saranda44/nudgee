@@ -3,18 +3,37 @@
 NFR-10 · ARQ-18 · Arquitectura §4.8. Documento vivo del repo (no es export de Notion): actualízalo al cerrar cada pieza.
 Última actualización: 2026-11-23.
 
+## Inicio rápido: deploy para la demo
+
+```bash
+# 1. Backend + Infra (en tu Learner Lab)
+cd backend && npm run build
+cd ../infra
+terraform plan -var "environment=dev-<nombre>" \
+  -var "alarm_email=tu-correo@iteso.mx" \
+  -var "vapid_public_key=<tu-VAPID>" \
+  -var "domain_name=<tu-dominio>" \
+  -var "cloudflare_zone_id=<tu-zone-id>" \
+  -var "cloudflare_api_token=<tu-token>" \
+  -out=tf.plan
+terraform apply tf.plan
+
+# 2. Cuando esté vivo el lab (dashboard + alarmas + métricas):
+# Pasos de pruebas de carga en §5 con el pool de videos.
+```
+
 ## Reparto
 
 | Pieza | Quién | Estado |
 | --- | --- | --- |
-| A. Métricas EMF `AnalysisDeadLettered` (dlq) y `PushSent` (dispatcher) | Emilio | ✅ PR #27, probado en `dev-emilio` |
-| D. Alarma `AnalysisDeadLettered > 0` | Emilio | ✅ PR #27, probada (OK → ALARM → OK) |
-| Script de pruebas de carga | Emilio | ✅ rama `feat/pruebas-carga`, probado en `dev-emilio` con 15 requests (ver §5) |
-| Traza de punta a punta (en lugar de X-Ray) | Emilio | ✅ rama `feat/observabilidad-trazas`, probada en `dev-emilio` (ver §7) |
-| B. Dashboard NFR-10 (en Terraform) | Sara | ⏳ sin empezar |
-| C. Paneles de escalabilidad | Sara | ⏳ sin empezar |
-| D. Alarmas 5xx > 1 % en 5 min y mensaje más viejo > 5 min, topic SNS | Sara | ⏳ sin empezar |
-| Pruebas de carga en el lab de la demo | Los dos | ⏳ al final, cuando esté el dashboard |
+| A. Métricas EMF `AnalysisDeadLettered` (dlq) y `PushSent` (dispatcher) | Emilio | ✅ PR #27, merged |
+| D. Alarma `AnalysisDeadLettered > 0` | Emilio | ✅ PR #27, merged |
+| Script de pruebas de carga | Emilio | ✅ PR #29, merged (ver §5) |
+| Traza de punta a punta (en lugar de X-Ray) | Emilio | ✅ PR #28, merged (ver §7) |
+| B. Dashboard NFR-10 (en Terraform) | Sara | ✅ main, listo para deploy |
+| C. Paneles de escalabilidad | Sara | ✅ main, listo para deploy |
+| D. Alarmas 5xx > 1 % en 5 min, mensaje más viejo > 5 min, topic SNS | Sara | ✅ main, listo para deploy |
+| Pruebas de carga en el lab de la demo | Los dos | ⏳ próximo paso: deploy + run |
 
 ## 1. Métricas disponibles (namespace `Nudgee`)
 
