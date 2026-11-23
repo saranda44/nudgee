@@ -19,7 +19,7 @@ Se renumeró del checklist original de 6 fases a 9, para darle su propio lugar a
 - [x]  **Fase 6: Lambda API (router interno):** el resto de los endpoints de `/v1` que no son `POST /items` (perfil, biblioteca, acciones de ítems con `ETag`/`If-Match`, checklist, suscripciones push, apertura desde notificación, `/config`, `/health`). Valida con los schemas de `backend/schemas/` (Ajv + JSON Pointer) y aplica las transiciones de estado condicionales de RF §4.
 - [x]  **Fase 7: Motor de Recordatorios:** EventBridge Scheduler, Lambda Despachadora (evaluación de reglas y push) y Web Push vía VAPID.
 - [ ]  **Fase 8: Frontend PWA e Integración:** Hosting de estáticos, Service Worker, componentes React y consumo de API.
-- [ ]  **Fase 9: Observabilidad y QA:** X-Ray, CloudWatch (EMF) y demostración.
+- [ ]  **Fase 9: Observabilidad y QA:** X-Ray, CloudWatch (EMF) y demostración. Estado y reparto en [observabilidad.md](observabilidad.md).
 
 ## Infraestructura Desplegada y probada (Fases 1 y 2)
 
