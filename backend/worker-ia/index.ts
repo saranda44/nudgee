@@ -31,6 +31,7 @@ async function processRecord(record: SQSRecord): Promise<void> {
     if (outcome.kind !== "skipped_not_processing") {
       const analysisSource = outcome.kind === "cache_hit_ok" || outcome.kind === "cache_hit_unavailable" ? "CACHE" : "GEMINI";
       emitAnalysisDuration(now.getTime() - new Date(message.savedAt).getTime(), analysisSource);
+      if (outcome.kind === "client_error") emitGeminiError("CLIENT_ERROR");
     }
   } catch (error) {
     const metricType = error instanceof GeminiCallError ? geminiErrorMetricType(error.kind) : undefined;
