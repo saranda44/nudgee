@@ -43,7 +43,7 @@ Emitidas con EMF (`backend/shared/emf.ts`): un `console.log` que CloudWatch conv
 | --- | --- | --- | --- | --- |
 | `AnalysisDurationMs` | Milliseconds | `analysisSource` = `GEMINI` \| `CACHE` | worker-ia | `readyAt − savedAt` |
 | `IngestaLatencyMs` | Milliseconds | *(ninguna)* | ingesta | Duración del handler completo (`POST /v1/items`); reemplaza la métrica nativa de API Gateway por ruta, que no produce datos en Learner Lab (§3) |
-| `GeminiError` | Count | `type` = `429` \| `5xx` \| `TIMEOUT` \| `INVALID_OUTPUT` | worker-ia | |
+| `GeminiError` | Count | `type` = `429` \| `5xx` \| `TIMEOUT` \| `CLIENT_ERROR` \| `INVALID_OUTPUT` | worker-ia | `CLIENT_ERROR` = 4xx que no sea 429 (ej. 403 por permisos/contenido restringido); se resuelve a `NEEDS_INPUT` de inmediato, sin reintentos |
 | `AnalysisDeadLettered` | Count | *(ninguna)* | dlq | 1 por mensaje que llega a la DLQ, incluso malformado |
 | `PushSent` | Count | `status` = `SENT` \| `PARTIAL` \| `FAILED` \| `IN_APP` | dispatcher | 1 por recordatorio registrado; no se emite si la franja ya existía |
 | `GeminiCallMs` | Milliseconds | *(ninguna)* | worker-ia | ⚠️ definida en `worker-ia/metrics.ts` pero **nunca se llama** |

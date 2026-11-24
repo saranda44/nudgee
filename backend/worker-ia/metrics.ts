@@ -14,7 +14,7 @@ export function emitGeminiCallDuration(durationMs: number): void {
   emitMetrics([{ name: "GeminiCallMs", value: durationMs, unit: "Milliseconds" }]);
 }
 
-/** Por tipo: 429, 5xx, TIMEOUT o INVALID_OUTPUT. */
-export function emitGeminiError(type: "429" | "5xx" | "TIMEOUT" | "INVALID_OUTPUT"): void {
+/** Por tipo: 429, 5xx, TIMEOUT, CLIENT_ERROR o INVALID_OUTPUT. */
+export function emitGeminiError(type: "429" | "5xx" | "TIMEOUT" | "CLIENT_ERROR" | "INVALID_OUTPUT"): void {
   emitMetrics([{ name: "GeminiError", value: 1, unit: "Count" }], { type });
 }

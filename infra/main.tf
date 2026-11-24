@@ -517,6 +517,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
             ["Nudgee", "GeminiError", "type", "429"],
             ["...", "5xx"],
             ["...", "TIMEOUT"],
+            ["...", "CLIENT_ERROR"],
             ["...", "INVALID_OUTPUT"]
           ]
           view    = "timeSeries"

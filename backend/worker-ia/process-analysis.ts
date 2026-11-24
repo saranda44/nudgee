@@ -2,7 +2,7 @@ import { buildGeminiFlatSchema } from "../schemas/gemini-flat-schema.ts";
 import { stripUnsupportedKeywords } from "../schemas/keywords-to-strip.ts";
 import type { WorkerConfig } from "./config.ts";
 import { type AnalysisForItem, markItemNeedsInput, markItemPending, readAnalysisCache, writeAnalysisCache } from "./dynamo.ts";
-import { analyzeWithGemini } from "./gemini.ts";
+import { analyzeWithGemini, GeminiCallError } from "./gemini.ts";
 import { createIdGenerator, normalizeAiOutput } from "./normalize.ts";
 import { buildPrompt } from "./prompt.ts";
 
@@ -23,6 +23,7 @@ export type ProcessAnalysisOutcome =
   | { kind: "analyzed_ok" }
   | { kind: "low_confidence" }
   | { kind: "cannot_analyze" }
+  | { kind: "client_error" }
   | { kind: "invalid_output" }
   | { kind: "skipped_not_processing" };
 
@@ -62,8 +63,29 @@ export async function processAnalysis(input: ProcessAnalysisInput): Promise<Proc
 
   const videoUrl = `https://www.youtube.com/watch?v=${message.videoId}`;
 
-  // GeminiCallError (429/5xx/timeout) se propaga a propósito: el handler decide el backoff.
-  const rawText = await analyzeWithGemini(videoUrl, PROMPT, GEMINI_SCHEMA, {model: config.geminiModel, timeoutMs: config.geminiTimeoutMs,});
+  let rawText: string;
+  try {
+    // GeminiCallError de RATE_LIMIT/SERVER_ERROR/TIMEOUT se propaga a propósito: el
+    // handler (index.ts) decide el backoff. CLIENT_ERROR (4xx salvo 429, ej. 403 por
+    // permisos/contenido restringido) nunca se arregla reintentando: se resuelve aquí
+    // mismo, igual que CANNOT_ANALYZE, en vez de agotar los 6 reintentos nativos de SQS.
+    rawText = await analyzeWithGemini(videoUrl, PROMPT, GEMINI_SCHEMA, { model: config.geminiModel, timeoutMs: config.geminiTimeoutMs });
+  } catch (error) {
+    if (error instanceof GeminiCallError && error.kind === "CLIENT_ERROR") {
+      await writeAnalysisCache({
+        videoId: message.videoId,
+        analysisVersion: config.analysisVersion,
+        result: "UNAVAILABLE",
+        model: config.geminiModel,
+        correlationId: message.correlationId,
+        now,
+        ttlSeconds: config.cacheTtlUnavailableSeconds,
+      });
+      const { skipped } = await markItemNeedsInput({ userId: message.userId, videoId: message.videoId, analysisError: "VIDEO_UNAVAILABLE", now });
+      return skipped ? { kind: "skipped_not_processing" } : { kind: "client_error" };
+    }
+    throw error;
+  }
 
   const normalized = normalizeAiOutput(rawText, now, createIdGenerator());
 

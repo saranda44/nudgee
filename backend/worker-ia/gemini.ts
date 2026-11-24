@@ -20,7 +20,7 @@ async function getClient(): Promise<GoogleGenAI> {
   return cachedClient;
 }
 
-export type GeminiErrorKind = "RATE_LIMIT" | "SERVER_ERROR" | "TIMEOUT" | "UNKNOWN";
+export type GeminiErrorKind = "RATE_LIMIT" | "SERVER_ERROR" | "CLIENT_ERROR" | "TIMEOUT" | "UNKNOWN";
 
 export class GeminiCallError extends Error {
   readonly kind: GeminiErrorKind;
@@ -88,6 +88,8 @@ function classifyError(error: unknown): GeminiCallError {
   const status = extractHttpStatus(error);
   if (status === 429) return new GeminiCallError("RATE_LIMIT", "429 de Gemini", error);
   if (status !== undefined && status >= 500) return new GeminiCallError("SERVER_ERROR", `${status} de Gemini`, error);
+  // 4xx que no sea 429 (ej. 403 por permisos/contenido restringido) no se arregla reintentando.
+  if (status !== undefined && status >= 400) return new GeminiCallError("CLIENT_ERROR", `${status} de Gemini`, error);
   if (status !== undefined) return new GeminiCallError("UNKNOWN", `${status} de Gemini`, error);
 
   // El timeout via `timeout_ms` aborta el fetch; el SDK no exporta su clase de
