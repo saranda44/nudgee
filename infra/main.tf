@@ -383,7 +383,7 @@ resource "aws_cloudwatch_metric_alarm" "apigw_5xx_errors" {
   alarm_name          = "${var.project_name}-apigw-5xx-errors-${var.environment}"
   alarm_description   = "Hay errores 5xx en la API en los últimos 5 minutos"
   namespace           = "AWS/ApiGateway"
-  metric_name         = "5XXError"
+  metric_name         = "5xx" # HTTP API; "5XXError" es el nombre de REST API y aquí nunca tiene datos
   statistic           = "Sum"
   period              = 300
   evaluation_periods  = 1
@@ -450,6 +450,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region = local.region
           title  = "Cola - Profundidad"
           period = 60
+          stat   = "Maximum" # el pico de la cola
         }
       },
       {
@@ -466,6 +467,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region = local.region
           title  = "Cola - Edad msg"
           period = 60
+          stat   = "Maximum" # igual que la alarma de > 5 min
         }
       },
       {
@@ -482,6 +484,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region = local.region
           title  = "worker-ia Concurrency"
           period = 60
+          stat   = "Maximum" # el techo (maximum_concurrency = 2) solo se ve con el máximo
         }
       },
 
@@ -500,6 +503,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region = local.region
           title  = "DLQ - Rechazados"
           period = 60
+          stat   = "Sum"
         }
       },
       {
@@ -520,6 +524,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region  = local.region
           title   = "Gemini - Errores"
           period  = 300
+          stat    = "Sum"
         }
       },
 
@@ -558,6 +563,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region  = local.region
           title   = "Push - Por status"
           period  = 300
+          stat    = "Sum"
         }
       },
 
@@ -593,6 +599,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region  = local.region
           title   = "Lambda - Throttles"
           period  = 60
+          stat    = "Sum"
         }
       },
 
@@ -605,13 +612,15 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
         height = 6
         properties = {
           metrics = [
+            # sin "...": ese atajo reemplaza el último valor (TableName), no el nombre de la métrica
             ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "nudgee-main"],
-            ["...", "ConsumedWriteCapacityUnits"]
+            ["AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "nudgee-main"]
           ]
           view   = "timeSeries"
           region = local.region
           title  = "DynamoDB - Capacity"
           period = 60
+          stat   = "Sum"
         }
       },
       {
@@ -628,6 +637,7 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           region = local.region
           title  = "DynamoDB - Throttled"
           period = 60
+          stat   = "Sum"
         }
       },
 
@@ -640,14 +650,16 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
         height = 6
         properties = {
           metrics = [
+            # sin "...": ese atajo reemplaza el último valor (ApiId), no el nombre de la métrica
             ["AWS/ApiGateway", "Count", "ApiId", local.api_id],
-            ["...", "5xx"]
+            ["AWS/ApiGateway", "5xx", "ApiId", local.api_id]
           ]
           view    = "timeSeries"
           stacked = false
           region  = local.region
           title   = "API - Requests + 5xx"
           period  = 300
+          stat    = "Sum" # API Gateway publica 1 por request: el promedio siempre da 1
         }
       },
 
