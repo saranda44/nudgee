@@ -4,10 +4,11 @@ import type {
   APIGatewayProxyStructuredResultV2,
 } from "aws-lambda";
 import { randomUUID } from "crypto";
-import { parseShortsUrl } from "./url";
-import { ProblemError, buildInternalErrorResponse, buildProblemResponse } from "./problem";
-import { deleteItemCompensation, saveItemWithQuota } from "./dynamo";
-import { sendAnalysisMessage } from "./sqs";
+import { parseShortsUrl } from "./url.ts";
+import { ProblemError, buildInternalErrorResponse, buildProblemResponse } from "./problem.ts";
+import { deleteItemCompensation, saveItemWithQuota } from "./dynamo.ts";
+import { sendAnalysisMessage } from "./sqs.ts";
+import { emitMetrics } from "../shared/emf.ts";
 
 const MAX_BODY_BYTES = 32 * 1024;
 /** un ítem en PROCESSING más viejo que esto se considera atascado. */
@@ -86,6 +87,7 @@ function buildCreatedResponse(params: {
 
 export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) => {
   const correlationId = getCorrelationId(event);
+  const startedAt = performance.now();
 
   try {
     const userId = getUserId(event);
@@ -184,7 +186,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
       await sendAnalysisMessage({ userId, videoId, correlationId, savedAt: outcome.savedAt });
     } catch (error) {
       logError("sendAnalysisMessage failed, compensating", correlationId, error);
-      await deleteItemCompensation(userId, videoId).catch((compensationError) => {
+      await deleteItemCompensation(userId, videoId).catch((compensationError: unknown) => {
         // Si también falla el borrado, queda un ítem huérfano en PROCESSING; el reencolado
         // lo detectará como atascado en el siguiente intento del mismo video.
         logError("deleteItemCompensation also failed", correlationId, compensationError);
@@ -208,5 +210,7 @@ export const handler: APIGatewayProxyHandlerV2WithJWTAuthorizer = async (event) 
   } catch (error) {
     console.error(JSON.stringify({ level: "error", correlationId, message: "Unhandled error in ingesta", error: String(error) }));
     return buildInternalErrorResponse(correlationId);
+  } finally {
+    emitMetrics([{ name: "IngestaLatencyMs", value: performance.now() - startedAt, unit: "Milliseconds" }]);
   }
 };

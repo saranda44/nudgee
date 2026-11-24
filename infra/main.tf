@@ -650,6 +650,56 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
           period  = 300
         }
       },
+
+      # Latencia de Ingesta (propia, EMF): la de API Gateway por ruta no produce datos (ver docs/observabilidad.md)
+      {
+        type   = "metric"
+        x      = 0
+        y      = 36
+        width  = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "IngestaLatencyMs", { stat = "p50" }]
+          ]
+          view   = "timeSeries"
+          region = local.region
+          title  = "Ingesta Latencia p50"
+          period = 300
+        }
+      },
+      {
+        type   = "metric"
+        x      = 8
+        y      = 36
+        width  = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "IngestaLatencyMs", { stat = "p95" }]
+          ]
+          view   = "timeSeries"
+          region = local.region
+          title  = "Ingesta Latencia p95"
+          period = 300
+        }
+      },
+      {
+        type   = "metric"
+        x      = 16
+        y      = 36
+        width  = 8
+        height = 6
+        properties = {
+          metrics = [
+            ["Nudgee", "IngestaLatencyMs", { stat = "p99" }]
+          ]
+          view   = "timeSeries"
+          region = local.region
+          title  = "Ingesta Latencia p99"
+          period = 300
+        }
+      },
     ]
   })
 }
