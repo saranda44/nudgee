@@ -7,10 +7,13 @@
  *
  *   node scripts/load-test/index.ts warmup  --videos pool.txt [--yes]
  *   node scripts/load-test/index.ts run     --videos pool.txt [--users 35] [--per-user 25] [--rate 15] [--max-requests 900] [--yes]
+ *   node scripts/load-test/index.ts run     --videos pool-sin-cache.txt --real [--max-gemini 30] [--rate 15] [--yes]
  *   node scripts/load-test/index.ts cleanup [--yes]
  *
  * Costo de Gemini: `run` SOLO usa videos con caché OK en DynamoDB (cache hit, sin Gemini). Gemini
- * solo se llama en `warmup`, una vez por video sin caché, de a uno y con tope (--max-gemini).
+ * solo se llama en `warmup` (de a uno, con tope --max-gemini) y en `run --real`, que manda videos
+ * SIN caché de golpe para que la cola se vea crecer contra la concurrencia fija de worker-ia (2):
+ * los hits de caché se resuelven en milisegundos y nunca acumulan cola, sin importar el volumen.
  */
 
 import { execFileSync } from "node:child_process";
@@ -34,6 +37,7 @@ import { buildPlan, parseVideoPool, percentile, shouldAbort } from "./plan.ts";
 
 const USER_PREFIX = "loadtest-";
 const WARMUP_EMAIL = `${USER_PREFIX}warmup@example.com`;
+const REAL_EMAIL = `${USER_PREFIX}real@example.com`;
 const MAX_IN_FLIGHT = 100;
 
 interface LoadTestConfig {
@@ -55,6 +59,7 @@ const { positionals, values: args } = parseArgs({
     "max-requests": { type: "string", default: "900" },
     "max-gemini": { type: "string", default: "30" },
     "analysis-version": { type: "string", default: "1" },
+    real: { type: "boolean", default: false },
     yes: { type: "boolean", default: false },
   },
 });
@@ -253,31 +258,62 @@ async function warmup(): Promise<void> {
   console.log(`✔ Warmup terminado: ${after.cached.length}/${pool.length} videos con caché OK.`);
 }
 
-/** La ráfaga: solo videos con caché OK, así que no llama a Gemini. */
+/**
+ * La ráfaga. Por defecto solo usa videos con caché OK (sin Gemini); con --real manda videos SIN
+ * caché de golpe para que la cola se vea crecer contra la concurrencia fija de worker-ia (2): un
+ * cache hit se resuelve en milisegundos y nunca acumula cola, sin importar cuántos requests mandes.
+ */
 async function run(): Promise<void> {
   const config = loadConfig();
   const pool = loadPool();
   const { cached, unavailable, missing } = await classifyPool(config, pool);
-  if (unavailable.length + missing.length) {
-    console.warn(`⚠ Excluyo ${unavailable.length + missing.length} videos sin caché OK (correr warmup): ${[...unavailable, ...missing].join(", ")}`);
-  }
-  if (!cached.length) fail("Ningún video del pool tiene caché OK: corre primero `warmup`");
-
-  const users = intArg("users");
   const rate = intArg("rate");
-  const plan = buildPlan(users, cached, intArg("per-user"), intArg("max-requests"));
-  confirm(
-    [
-      `Stack: ${config.environment}`,
-      `Ráfaga: ${plan.length} guardados de ${users} usuarios sobre ${cached.length} videos en caché (0 llamadas a Gemini).`,
-      `Ritmo: ${rate} req/s → ~${Math.ceil(plan.length / rate)} s enviando.`,
-    ].join("\n"),
-  );
 
-  console.log(`Iniciando sesión con ${users} usuarios de prueba…`);
+  let plan: ReturnType<typeof buildPlan>;
+  let loginEmails: string[];
+
+  if (args.real) {
+    const maxGemini = intArg("max-gemini");
+    const realPool = missing.slice(0, maxGemini);
+    if (missing.length > maxGemini) {
+      console.warn(`⚠ Excluyo ${missing.length - maxGemini} videos sin caché por encima de --max-gemini ${maxGemini}: ${missing.slice(maxGemini).join(", ")}`);
+    }
+    if (cached.length + unavailable.length) {
+      console.warn(`⚠ --real ignora ${cached.length + unavailable.length} videos que ya tienen caché (no llamarían a Gemini): ${[...cached, ...unavailable].join(", ")}`);
+    }
+    if (!realPool.length) fail("--real necesita videos SIN caché en el pool (usa un pool distinto al de warmup/run)");
+
+    plan = buildPlan(1, realPool, realPool.length, realPool.length);
+    loginEmails = [REAL_EMAIL];
+    confirm(
+      [
+        `Stack: ${config.environment}`,
+        `Ráfaga REAL: ${plan.length} guardados de 1 usuario sobre ${realPool.length} videos SIN caché → ${plan.length} llamadas reales a Gemini (cuota/costo real).`,
+        `Ritmo: ${rate} req/s → ~${Math.ceil(plan.length / rate)} s enviando; el drenado real tarda más por la latencia de Gemini.`,
+      ].join("\n"),
+    );
+  } else {
+    if (unavailable.length + missing.length) {
+      console.warn(`⚠ Excluyo ${unavailable.length + missing.length} videos sin caché OK (correr warmup): ${[...unavailable, ...missing].join(", ")}`);
+    }
+    if (!cached.length) fail("Ningún video del pool tiene caché OK: corre primero `warmup`");
+
+    const users = intArg("users");
+    plan = buildPlan(users, cached, intArg("per-user"), intArg("max-requests"));
+    loginEmails = Array.from({ length: users }, (_, u) => `${USER_PREFIX}${String(u + 1).padStart(2, "0")}@example.com`);
+    confirm(
+      [
+        `Stack: ${config.environment}`,
+        `Ráfaga: ${plan.length} guardados de ${users} usuarios sobre ${cached.length} videos en caché (0 llamadas a Gemini).`,
+        `Ritmo: ${rate} req/s → ~${Math.ceil(plan.length / rate)} s enviando.`,
+      ].join("\n"),
+    );
+  }
+
+  console.log(`Iniciando sesión con ${loginEmails.length} usuario${loginEmails.length === 1 ? "" : "s"} de prueba…`);
   const tokens: string[] = [];
-  for (let u = 0; u < users; u++) {
-    tokens.push((await signIn(config, `${USER_PREFIX}${String(u + 1).padStart(2, "0")}@example.com`)).token);
+  for (const email of loginEmails) {
+    tokens.push((await signIn(config, email)).token);
   }
 
   const runId = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);

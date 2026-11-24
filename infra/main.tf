@@ -110,8 +110,10 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 
   route_settings {
-    route_key              = "POST /v1/items"
+    route_key                = "POST /v1/items"
     detailed_metrics_enabled = true
+    throttling_burst_limit   = 100
+    throttling_rate_limit    = 50
   }
 }
 
@@ -421,11 +423,11 @@ resource "aws_cloudwatch_metric_alarm" "sqs_oldest_message" {
 # Paneles NFR-10 (B) + escalabilidad (C)
 
 locals {
-  api_id       = aws_apigatewayv2_api.http_api.id
-  queue_name   = "${var.project_name}-analysis-${var.environment}.fifo"
-  region       = data.aws_region.current.name
-  env_name     = var.environment
-  proj_name    = var.project_name
+  api_id     = aws_apigatewayv2_api.http_api.id
+  queue_name = "${var.project_name}-analysis-${var.environment}.fifo"
+  region     = data.aws_region.current.name
+  env_name   = var.environment
+  proj_name  = var.project_name
 }
 
 resource "aws_cloudwatch_dashboard" "nudgee" {
@@ -433,153 +435,85 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
 
   dashboard_body = jsonencode({
     widgets = [
-      # Latencia p50/p95/p99 de POST /v1/items
-      {
-        type = "metric"
-        x    = 0
-        y    = 0
-        width = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/ApiGateway", "Latency", { stat = "p50" }]
-          ]
-          dimensions = {
-            ApiId = local.api_id
-            Route = "POST /v1/items"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Latencia p50"
-          period  = 300
-        }
-      },
-      {
-        type = "metric"
-        x    = 8
-        y    = 0
-        width = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/ApiGateway", "Latency", { stat = "p95" }]
-          ]
-          dimensions = {
-            ApiId = local.api_id
-            Route = "POST /v1/items"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Latencia p95"
-          period  = 300
-        }
-      },
-      {
-        type = "metric"
-        x    = 16
-        y    = 0
-        width = 8
-        height = 6
-        properties = {
-          metrics = [
-            ["AWS/ApiGateway", "Latency", { stat = "p99" }]
-          ]
-          dimensions = {
-            ApiId = local.api_id
-            Route = "POST /v1/items"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Latencia p99"
-          period  = 300
-        }
-      },
-
       # Cola SQS
       {
-        type = "metric"
-        x    = 0
-        y    = 6
-        width = 8
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/SQS", "ApproximateNumberOfMessagesVisible"]
+            ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", local.queue_name]
           ]
-          dimensions = {
-            QueueName = local.queue_name
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Cola - Profundidad"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "Cola - Profundidad"
+          period = 60
         }
       },
       {
-        type = "metric"
-        x    = 8
-        y    = 6
-        width = 8
+        type   = "metric"
+        x      = 8
+        y      = 0
+        width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/SQS", "ApproximateAgeOfOldestMessage"]
+            ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", local.queue_name]
           ]
-          dimensions = {
-            QueueName = local.queue_name
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Cola - Edad msg"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "Cola - Edad msg"
+          period = 60
         }
       },
       {
-        type = "metric"
-        x    = 16
-        y    = 6
-        width = 8
+        type   = "metric"
+        x      = 16
+        y      = 0
+        width  = 8
         height = 6
         properties = {
           metrics = [
-            ["AWS/Lambda", "ConcurrentExecutions"]
+            ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${local.proj_name}-worker-ia-${local.env_name}"]
           ]
-          dimensions = {
-            FunctionName = "${local.proj_name}-worker-ia-${local.env_name}"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "worker-ia Concurrency"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "worker-ia Concurrency"
+          period = 60
         }
       },
 
       # DLQ + Gemini errors
       {
-        type = "metric"
-        x    = 0
-        y    = 12
-        width = 12
+        type   = "metric"
+        x      = 0
+        y      = 6
+        width  = 12
         height = 6
         properties = {
           metrics = [
             ["Nudgee", "AnalysisDeadLettered"]
           ]
-          view    = "timeSeries"
-          region  = local.region
-          title   = "DLQ - Rechazados"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "DLQ - Rechazados"
+          period = 60
         }
       },
       {
-        type = "metric"
-        x    = 12
-        y    = 12
-        width = 12
+        type   = "metric"
+        x      = 12
+        y      = 6
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["Nudgee", "GeminiError"]
+            ["Nudgee", "GeminiError", "type", "429"],
+            ["...", "5xx"],
+            ["...", "TIMEOUT"],
+            ["...", "INVALID_OUTPUT"]
           ]
           view    = "timeSeries"
           stacked = true
@@ -591,33 +525,33 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
 
       # Caché + Push
       {
-        type = "metric"
-        x    = 0
-        y    = 18
-        width = 12
+        type   = "metric"
+        x      = 0
+        y      = 12
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["Nudgee", "AnalysisDurationMs", { stat = "SampleCount" }]
+            ["Nudgee", "AnalysisDurationMs", "analysisSource", "CACHE", { stat = "SampleCount" }]
           ]
-          dimensions = {
-            analysisSource = "CACHE"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "Cache - Aciertos"
-          period  = 300
+          view   = "timeSeries"
+          region = local.region
+          title  = "Cache - Aciertos"
+          period = 300
         }
       },
       {
-        type = "metric"
-        x    = 12
-        y    = 18
-        width = 12
+        type   = "metric"
+        x      = 12
+        y      = 12
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["Nudgee", "PushSent"]
+            ["Nudgee", "PushSent", "status", "SENT"],
+            ["...", "PARTIAL"],
+            ["...", "FAILED"],
+            ["...", "IN_APP"]
           ]
           view    = "timeSeries"
           stacked = true
@@ -629,29 +563,26 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
 
       # Dispatcher + Lambda Throttles
       {
-        type = "metric"
-        x    = 0
-        y    = 24
-        width = 12
+        type   = "metric"
+        x      = 0
+        y      = 18
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["AWS/Lambda", "ConcurrentExecutions"]
+            ["AWS/Lambda", "ConcurrentExecutions", "FunctionName", "${local.proj_name}-dispatcher-${local.env_name}"]
           ]
-          dimensions = {
-            FunctionName = "${local.proj_name}-dispatcher-${local.env_name}"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "dispatcher - Concurrency"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "dispatcher - Concurrency"
+          period = 60
         }
       },
       {
-        type = "metric"
-        x    = 12
-        y    = 24
-        width = 12
+        type   = "metric"
+        x      = 12
+        y      = 18
+        width  = 12
         height = 6
         properties = {
           metrics = [
@@ -667,60 +598,51 @@ resource "aws_cloudwatch_dashboard" "nudgee" {
 
       # DynamoDB
       {
-        type = "metric"
-        x    = 0
-        y    = 30
-        width = 12
+        type   = "metric"
+        x      = 0
+        y      = 24
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["AWS/DynamoDB", "ConsumedReadCapacityUnits"],
+            ["AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "nudgee-main"],
             ["...", "ConsumedWriteCapacityUnits"]
           ]
-          dimensions = {
-            TableName = "nudgee-main"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "DynamoDB - Capacity"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "DynamoDB - Capacity"
+          period = 60
         }
       },
       {
-        type = "metric"
-        x    = 12
-        y    = 30
-        width = 12
+        type   = "metric"
+        x      = 12
+        y      = 24
+        width  = 12
         height = 6
         properties = {
           metrics = [
-            ["AWS/DynamoDB", "ThrottledRequests"]
+            ["AWS/DynamoDB", "ThrottledRequests", "TableName", "nudgee-main"]
           ]
-          dimensions = {
-            TableName = "nudgee-main"
-          }
-          view    = "timeSeries"
-          region  = local.region
-          title   = "DynamoDB - Throttled"
-          period  = 60
+          view   = "timeSeries"
+          region = local.region
+          title  = "DynamoDB - Throttled"
+          period = 60
         }
       },
 
       # API Gateway
       {
-        type = "metric"
-        x    = 0
-        y    = 36
-        width = 24
+        type   = "metric"
+        x      = 0
+        y      = 30
+        width  = 24
         height = 6
         properties = {
           metrics = [
-            ["AWS/ApiGateway", "Count"],
-            ["...", "5XXError"]
+            ["AWS/ApiGateway", "Count", "ApiId", local.api_id],
+            ["...", "5xx"]
           ]
-          dimensions = {
-            ApiId = local.api_id
-          }
           view    = "timeSeries"
           stacked = false
           region  = local.region
